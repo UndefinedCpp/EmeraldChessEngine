@@ -6,11 +6,12 @@ parser = argparse.ArgumentParser(description='Build the project')
 parser.add_argument('--optimize', '-O', action='store_true',
                     help='Optimize the build', default=True)
 parser.add_argument('--arch', '-a', type=str, default='native')
-parser.add_argument('--target', type=str, default='engine.exe')
+parser.add_argument('--target', type=str, default='engine')
 parser.add_argument('--run', '-r', action='store_true',
                     help='Run the program after building', default=False)
 parser.add_argument('--static', action='store_true')
 parser.add_argument('--iterative', action='store_true')
+parser.add_argument('--release', action='store_true')
 
 SOURCE_DIR = './src'
 
@@ -28,6 +29,10 @@ if __name__ == '__main__':
         if os.path.exists('./build/engine.exe'):
             os.rename('./build/engine.exe', './build/engine.old.exe')
 
+    target_name = f'./build/{args.target}.{args.arch}.exe' \
+        if args.release \
+        else f'./build/{args.target}.exe'
+
     command = [
         'g++',
         '-O3' if args.optimize else '',
@@ -36,9 +41,9 @@ if __name__ == '__main__':
         '-std=c++17',
         f'-march={args.arch}',
         '-o',
-        f'./build/{args.target}',
+        target_name,
     ]
-    if args.static:
+    if args.static or args.release:
         command.extend([
             '-static-libstdc++',
             '-static-libgcc',

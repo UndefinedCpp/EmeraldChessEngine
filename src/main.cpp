@@ -5,8 +5,9 @@
 using namespace std;
 
 int main() {
-    cout << "Emerald Chess Engine by UndefinedCpp, indev version" << endl;
-    tt.init(1024 * 1024); // temporary initialize transposition table
+    cout << "Emerald Chess Engine by UndefinedCpp, version " << ENGINE_VERSION
+         << endl;
+    tt.init(8 * 1024 * 1024); // todo refactor, currently fixed at 128MB
 
     std::string input;
     while (std::getline(std::cin, input)) {

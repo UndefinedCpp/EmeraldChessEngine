@@ -94,17 +94,17 @@ Value Searcher::qsearch(Value alpha, Value beta, int plyRemaining,
 template <NodeType NT>
 Value Searcher::negamax(Value alpha, Value beta, int plyRemaining,
                         int plyFromRoot, bool canNullMove) {
+    // Check game status
+    const auto [gameOver, gameResultValue] = checkGameStatus(pos);
+    if (gameOver) {
+        return gameResultValue.addPly(plyFromRoot);
+    }
     // Check time
     if (checkTime()) {
         searchAborted = true;
         return 0;
     }
 
-    // Check game status
-    const auto [gameOver, gameResultValue] = checkGameStatus(pos);
-    if (gameOver) {
-        return gameResultValue.addPly(plyFromRoot);
-    }
     diagnosis.nodes++;
 
     if (plyFromRoot >= diagnosis.seldepth) {
@@ -137,9 +137,13 @@ Value Searcher::negamax(Value alpha, Value beta, int plyRemaining,
 
     // Set up move ordering
     MoveOrderer<OrderMode::DEFAULT> orderer;
-    Move ttHashMove = entry ? entry->move() : Move::NO_MOVE; // note +11.59 elo
-    orderer.init(pos, &killerMoves[plyFromRoot],
-                 ttHashMove.isValid() ? &ttHashMove : nullptr);
+
+    if (entry) { // Hash move from transposition table if available
+        Move ttHashMove = entry->move();
+        orderer.init(pos, &killerMoves[plyFromRoot], &ttHashMove);
+    } else {
+        orderer.init(pos, &killerMoves[plyFromRoot]);
+    }
 
     Move bestMove(Move::NO_MOVE);
     Move m;
@@ -166,6 +170,7 @@ Value Searcher::negamax(Value alpha, Value beta, int plyRemaining,
             }
         }
 
+        // Principal Variation Search
         pos.makeMove(m);
         Value eval;
         if (movesSearched == 0) {
@@ -189,13 +194,6 @@ Value Searcher::negamax(Value alpha, Value beta, int plyRemaining,
             // Update killer and history heuristics for non-capture moves
             if (!pos.isCapture(m)) {
                 this->killerMoves[plyFromRoot].add(m);
-
-                // // todo always refactor this
-                // int bonus = std::clamp(plyRemaining * plyRemaining, -500,
-                // 500); int &ref =
-                //     this->historyHeuristics[(int)pos.sideToMove()]
-                //                            [m.from().index()][m.to().index()];
-                // ref += bonus - ref * std::abs(bonus) / 500;
             }
             return beta;
         }
@@ -264,38 +262,40 @@ std::pair<Move, Value> Searcher::search() {
 
     const auto timeBegin = std::chrono::steady_clock::now();
     startTime = timeBegin;
-    diagnosis.nodes = 0;
-    diagnosis.qnodes = 0;
-    result = negamax_root(1, MATE_VALUE, MATED_VALUE);
-    Value guessValue = result.second;
 
-    for (int depth = 2; depth <= 32; ++depth) {
-        result = negamax_root(depth, MATE_VALUE, MATED_VALUE);
-        if (searchAborted) {
-            break;
-        }
-
-        pvMoveFromIteration = result.first;
-        pvScoreFromIteration = result.second;
-        guessValue = pvScoreFromIteration;
-
+    for (int depth = 1; depth <= 32; ++depth) {
         const auto timeEnd = std::chrono::steady_clock::now();
         const uint32_t timeElapsed =
             std::chrono::duration_cast<std::chrono::milliseconds>(timeEnd -
                                                                   timeBegin)
                 .count();
-        // Print uci output
-        std::cout << "info depth " << depth << " score " << result.second
-                  << " seldepth " << (int)diagnosis.seldepth << " hashfull "
-                  << tt.hashfull() << " time " << timeElapsed << " nodes "
-                  << (int)diagnosis.nodes << " pv "
-                  << chess::uci::moveToUci(pvMoveFromIteration) << std::endl;
-        // std::cout << "info string non-qs nodes: "
-        //           << (int)(diagnosis.nodes - diagnosis.qnodes) << std::endl;
-
         if (timeElapsed > maxThinkingTime) {
             break;
         }
+
+        result = negamax_root(depth, MATE_VALUE, MATED_VALUE);
+        if (searchAborted) {
+            break;
+        }
+
+        // Print uci output
+        if (timeElapsed >= 1) {
+            uint64_t nps = diagnosis.nodes * 1000 / timeElapsed;
+            std::cout << "info depth " << depth << " score " << result.second
+                      << " seldepth " << (int)diagnosis.seldepth << " hashfull "
+                      << tt.hashfull() << " time " << timeElapsed << " nodes "
+                      << (int)diagnosis.nodes << " nps " << nps << " pv "
+                      << chess::uci::moveToUci(pvMoveFromIteration)
+                      << std::endl;
+        } else {
+            std::cout << "info depth " << depth << " score " << result.second
+                      << " seldepth " << (int)diagnosis.seldepth << " hashfull "
+                      << tt.hashfull() << " time " << timeElapsed << " nodes "
+                      << (int)diagnosis.nodes << std::endl;
+        }
+
+        pvMoveFromIteration = result.first;
+        pvScoreFromIteration = result.second;
     }
     std::cout << std::flush;
     return {pvMoveFromIteration, pvScoreFromIteration};

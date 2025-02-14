@@ -1,5 +1,6 @@
 #include "timemgr.h"
 #include <algorithm>
+#include <cmath>
 
 void TimeManager::update(uint32_t remainingTime, uint32_t increment) {
     _remainingTime = remainingTime;
@@ -7,10 +8,11 @@ void TimeManager::update(uint32_t remainingTime, uint32_t increment) {
 }
 
 uint32_t TimeManager::spareTime(int ply) {
-    if (_remainingTime <= 500) {
-        return _increment;
+    if (_remainingTime <= 1000) {
+        float ratio = _remainingTime / 1000.0f;
+        return (_remainingTime + _increment) * ratio * ratio / 4.0;
     }
-    if (ply >= 35) {
+    if (ply >= 40) {
         if (_remainingTime <= 100) {
             return _increment / 2;
         } else {
@@ -18,6 +20,6 @@ uint32_t TimeManager::spareTime(int ply) {
         }
     } else {
         return std::max(_increment - 1,
-                        _remainingTime / (35 - ply) + _increment);
+                        _remainingTime / (40 - ply) + _increment);
     }
 }

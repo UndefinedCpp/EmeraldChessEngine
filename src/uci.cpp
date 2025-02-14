@@ -21,7 +21,7 @@ void execute(const std::string &command) {
 
     // <Command> uci
     if (token == "uci") {
-        std::cout << "id name Emerald" << std::endl;
+        std::cout << "id name Emerald " << ENGINE_VERSION << std::endl;
         std::cout << "id author UndefinedCpp" << std::endl;
         // TODO Send options
         std::cout << "uciok" << std::endl;
