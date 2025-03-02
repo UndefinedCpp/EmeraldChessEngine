@@ -33,7 +33,7 @@ Value Searcher::qsearch(Value alpha, Value beta, int plyRemaining,
     // a bad value, it doesn't nessessarily mean we were doomed to lose. So we
     // keep this static evaluation as lower bound. A more detailed explanation
     // and discussion can be found at the link above.
-    Value eval = Evaluator(pos)();
+    Value eval = evaluate(pos);
     diagnosis.qnodes++;
     diagnosis.nodes++;
     if (plyFromRoot >= diagnosis.seldepth) {
@@ -48,22 +48,6 @@ Value Searcher::qsearch(Value alpha, Value beta, int plyRemaining,
     if (eval >= beta) { // beta cutoff
         return beta;
     }
-    /**
-     * Futility Pruning in quiescence search.alpha
-     *
-     * Also known as Delta pruning, futility pruning prunes branches where
-     * it is very unlikely any move will improve alpha.
-     *
-     * See https://www.chessprogramming.org/Delta_Pruning.
-     *
-     * Note | This feature is temporarily disabled due to a loss of elo.
-     * Note | Tested for 30 games: -82.59 +/- 84.10
-     * TODO investigate this issue
-     */
-    // const int DELTA_MARGIN = isPromotion ? 1200 : 650;
-    // if (eval + DELTA_MARGIN < alpha) {
-    //     return alpha;
-    // }
 
     if (eval > alpha) {
         alpha = eval;

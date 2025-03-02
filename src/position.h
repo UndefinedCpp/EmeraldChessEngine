@@ -1,30 +1,9 @@
 #pragma once
 
 #include "chess.hpp"
+#include "types.h"
 #include <cmath>
 #include <stack>
-
-// Common macros and imports to make lives easier
-#define WHITE chess::Color::WHITE
-#define BLACK chess::Color::BLACK
-#define TYPE_PAWN chess::PieceType::PAWN
-#define TYPE_KNIGHT chess::PieceType::KNIGHT
-#define TYPE_BISHOP chess::PieceType::BISHOP
-#define TYPE_ROOK chess::PieceType::ROOK
-#define TYPE_QUEEN chess::PieceType::QUEEN
-#define TYPE_KING chess::PieceType::KING
-#define MOVE_GEN_ALL chess::movegen::MoveGenType::ALL
-#define MOVE_GEN_CAPTURE chess::movegen::MoveGenType::CAPTURE
-// Common namespaces and classes that don't usually collide with other
-using chess::Bitboard;
-using chess::Board;
-using chess::Color;
-using chess::Move;
-using chess::movegen;
-using chess::Movelist;
-using chess::Piece;
-using chess::PieceType;
-using chess::Square;
 
 /**
  * Simple extension to Board with extra helper functions.

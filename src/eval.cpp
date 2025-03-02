@@ -24,315 +24,316 @@ std::pair<bool, Value> checkGameStatus(Position &board) {
     return {false, 0};
 }
 
-// ============================================================================
-// EVALUATOR CLASS
-// ============================================================================
+namespace {
 
-void Evaluator::_initialize() {
-    Bitboard bb;
-    /**
-     * Initialize pawn attack bitboards.
-     */
-    bb = pos.pieces(TYPE_PAWN, WHITE);
-    w_pawn_atk_bb = Bitboard(0ull);
-    while (bb) {
-        Square sq = Square(bb.pop());
-        Bitboard a = chess::attacks::pawn(WHITE, sq);
-        w_pawn_atk_bb |= a;
-    }
+enum EvalColor { White, Black, ColorNum = 2 };
+enum EvalPieceType {
+    Pawn,
+    Knight,
+    Bishop,
+    Rook,
+    Queen,
+    King,
+    PieceTypeNum = 6,
+    AllPieceTypes = 6,
+};
+constexpr Color COLOR_MAPPING[ColorNum] = {WHITE, BLACK};
+constexpr PieceType PIECE_TYPE_MAPPING[PieceTypeNum] = {
+    TYPE_PAWN, TYPE_KNIGHT, TYPE_BISHOP, TYPE_ROOK, TYPE_QUEEN, TYPE_KING};
 
-    bb = pos.pieces(TYPE_PAWN, BLACK);
-    b_pawn_atk_bb = Bitboard(0ull);
-    while (bb) {
-        Square sq = Square(bb.pop());
-        Bitboard a = chess::attacks::pawn(BLACK, sq);
-        b_pawn_atk_bb |= a;
-    }
-    /**
-     * Initialize mobility area.
-     */
-    w_mobility_area = (~b_pawn_atk_bb) & (~pos.pieces(TYPE_PAWN, WHITE)) &
-                      (~pos.pieces(TYPE_QUEEN, WHITE)) &
-                      (~pos.pieces(TYPE_KING, WHITE));
-    b_mobility_area = (~w_pawn_atk_bb) & (~pos.pieces(TYPE_PAWN, BLACK)) &
-                      (~pos.pieces(TYPE_QUEEN, BLACK)) &
-                      (~pos.pieces(TYPE_KING, BLACK));
-    /**
-     * Initialize king ring. Retrieve pre-computed bitboards and remove squares
-     * that are double defended by pawns.
-     */
-    w_king_ring = KING_RING_BB[pos.kingSq(WHITE).index()];
-    b_king_ring = KING_RING_BB[pos.kingSq(BLACK).index()];
-    bb = w_king_ring;
-    while (bb) {
-        // We treat the square as if there is an opponent pawn on it, and see
-        // if it attacks our pawns
-        Square sq = Square(bb.pop());
-        Bitboard atk = chess::attacks::pawn(BLACK, sq);
-        int defenders = (atk & pos.pieces(TYPE_PAWN, WHITE)).count();
-        if (defenders >= 2) {
-            w_king_ring &= ~Bitboard::fromSquare(sq);
-        }
-    }
-    bb = b_king_ring;
-    while (bb) {
-        Square sq = Square(bb.pop());
-        Bitboard atk = chess::attacks::pawn(WHITE, sq);
-        int defenders = (atk & pos.pieces(TYPE_PAWN, BLACK)).count();
-        if (defenders >= 2) {
-            w_king_ring &= ~Bitboard::fromSquare(sq);
-        }
-    }
-    /**
-     * Initialize passed pawns
-     */
-    bb = pos.pieces(TYPE_PAWN, WHITE);
-    w_passed_pawns = 0;
-    while (bb) {
-        Square sq = Square(bb.pop());
-        if ((PASSED_PAWN_DETECT_MASK[0][sq.index()] &
-             pos.pieces(TYPE_PAWN, BLACK)) == 0) {
-            w_passed_pawns |= Bitboard::fromSquare(sq);
-        }
-    }
-    bb = pos.pieces(TYPE_PAWN, BLACK);
-    b_passed_pawns = 0;
-    while (bb) {
-        Square sq = Square(bb.pop());
-        if ((PASSED_PAWN_DETECT_MASK[1][sq.index()] &
-             pos.pieces(TYPE_PAWN, WHITE)) == 0) {
-            b_passed_pawns |= Bitboard::fromSquare(sq);
-        }
-    }
-}
+// Shortcut for opponent color
+#define _C (C == White ? Black : White)
 
 /**
- * `phase` determines the interpolation factor between middle and end games.
+ * Evaluator class, implements various evaluation aspects.
  */
-int Evaluator::phase() {
-    // Count non-pawn materials
-    Value pts = PIECE_VALUE[1].mg * pos.countPieces(TYPE_PAWN) +
-                PIECE_VALUE[2].mg * pos.countPieces(TYPE_KNIGHT) +
-                PIECE_VALUE[3].mg * pos.countPieces(TYPE_BISHOP) +
-                PIECE_VALUE[4].mg * pos.countPieces(TYPE_ROOK) +
-                PIECE_VALUE[5].mg * pos.countPieces(TYPE_QUEEN);
-    constexpr int MIDGAME_LIMIT = 10000;
-    constexpr int ENDGAME_LIMIT = 1700;
-    return (pts.value() - ENDGAME_LIMIT) * ALL_GAME_PHASES /
-           (MIDGAME_LIMIT - ENDGAME_LIMIT);
-}
-
-/**
- * Scale endgame evaluation.
- */
-int Evaluator::endgame_scale_factor() {
-    return 1;
-}
-
-Value Evaluator::operator()() {
-    Score total;
-    total =
-        // Pieces
-        eval_component(_piece_value) + eval_component(_psqt) +
-        // Mobility
-        eval_component(_mobility) +
-        // Space
-        eval_component(_space) +
-        // Pawns
-        eval_component(_isolated_pawns) + eval_component(_doubled_pawns) +
-        eval_component(_supported_pawns) + eval_component(_passed_pawns) +
-        // Pieces
-        eval_component(_bishop_pair) +
-        // King
-        eval_component(_king_attackers) + eval_component(_weak_king_squares);
-
-    // Value is always from the side-to-move perspective
-    if (pos.sideToMove() == BLACK) {
-        total = ~total;
+class Evaluator {
+  public:
+    Evaluator(Position &pos) : pos(pos) {
     }
 
-    // Fuse the value
-    int phase = this->phase();
-    Value value = total.fuse(phase) + TEMPO_BONUS;
-    // Adjust value with respect to 50 move rule
-    int fiftyMoveRuleScaler = 100 - pos.halfMoveClock();
-    int scaledValue = static_cast<int>(value) * fiftyMoveRuleScaler / 100;
-    return Value(scaledValue);
-}
+  private:
+    Position &pos;
 
-/**
- * Evaluate piece value.
- */
-__subeval Score Evaluator::_piece_value() const {
-    return PIECE_VALUE[0] * pos.countPieces(TYPE_PAWN, __color) +
-           PIECE_VALUE[1] * pos.countPieces(TYPE_KNIGHT, __color) +
-           PIECE_VALUE[2] * pos.countPieces(TYPE_BISHOP, __color) +
-           PIECE_VALUE[3] * pos.countPieces(TYPE_ROOK, __color) +
-           PIECE_VALUE[4] * pos.countPieces(TYPE_QUEEN, __color);
-}
+    struct {
+        Score nonPawnMaterial[ColorNum];
+        Score psqt[ColorNum];
+        Bitboard attackedBy[ColorNum][PieceTypeNum + 1];
+        int kingAttackersCount[ColorNum];
+        int kingAttackersWeight[ColorNum];
+        int kingAttackSquares[ColorNum];
+        Bitboard kingRing[ColorNum];
+        Bitboard mobilityArea[ColorNum];
+        Bitboard passedPawns[ColorNum];
+    } cache;
 
-__subeval Score Evaluator::_psqt() const {
-    Score total;
-    for (chess::PieceType pt : {TYPE_PAWN, TYPE_KNIGHT, TYPE_BISHOP, TYPE_ROOK,
-                                TYPE_QUEEN, TYPE_KING}) {
-        Bitboard bb = pos.pieces(pt, __color);
+    /**
+     * Count material. This initializes the basic material values in
+     * cache, and should always be called before proceeding to any other
+     * evaluation.
+     */
+    template <EvalColor C>
+    void _countMaterial() {
+        for (PieceType pt : {TYPE_PAWN, TYPE_KNIGHT, TYPE_BISHOP, TYPE_ROOK,
+                             TYPE_QUEEN, TYPE_KING}) {
+            Bitboard bb = pos.pieces(pt, C);
+            // Count non pawn material
+            if (pt != TYPE_PAWN) {
+                cache.nonPawnMaterial[C] += PIECE_VALUE[pt] * bb.count();
+            }
+            // Count piece square table score
+            while (bb) {
+                Square sq = bb.pop();
+                uint8_t index = (C == White ? sq.index() : sq.flip().index());
+                cache.psqt[C] += PIECE_SQUARE_TABLES[pt][index];
+            }
+        }
+    }
+
+    template <EvalColor C>
+    void _init() {
+        // Initialize attack map
+        cache.attackedBy[C][AllPieceTypes] = 0;
+        for (PieceType pt : {TYPE_PAWN, TYPE_KNIGHT, TYPE_BISHOP, TYPE_ROOK,
+                             TYPE_QUEEN, TYPE_KING}) {
+            Bitboard bb = pos.pieces(pt, C);
+            cache.attackedBy[C][pt] = 0; // init bitboard
+            while (bb) {
+                Square sq = bb.pop();
+                cache.attackedBy[C][pt] |= pos.getAttackMap(sq);
+            }
+            cache.attackedBy[C][AllPieceTypes] |= cache.attackedBy[C][pt];
+        }
+        // Initialize king safety
+        cache.kingAttackersCount[C] = 0;
+        cache.kingAttackersWeight[C] = 0;
+        cache.kingAttackSquares[C] = 0;
+        cache.kingRing[C] = KING_RING_BB[pos.kingSq(C).index()];
+        // Initialize mobility area. Mobility areas are all squares except:
+        // - those attacked by the enemy pawns
+        // - king & queen squares
+        // - unmoved friendly pawns
+        cache.mobilityArea[C] = ~cache.attackedBy[_C][Pawn];
+        cache.mobilityArea[C] &= ~pos.pieces(TYPE_KING, C);
+        cache.mobilityArea[C] &= ~pos.pieces(TYPE_QUEEN, C);
+        cache.mobilityArea[C] &=
+            ~(pos.pieces(TYPE_PAWN, C) &
+              Bitboard(C == White ? chess::Rank::RANK_2 : chess::Rank::RANK_7));
+    }
+
+    /**
+     * Evaluates a type of piece for a given color.
+     */
+    template <EvalColor C, EvalPieceType PT>
+    Score _piece() {
+        Bitboard bb = pos.pieces(PIECE_TYPE_MAPPING[PT], COLOR_MAPPING[C]);
+        Score total;
+
         while (bb) {
-            Square sq = bb.pop();
-            int index;
-            white_specific index = sq.index();
-            black_specific index = sq.flip().index(); // mirror value
-            total = total + PIECE_SQUARE_TABLES[(int)pt][index];
+            const Square sq = bb.pop();
+            const Bitboard sqbb = 1 << sq.index();
+            // Find attacked squares, including x-ray attacks.
+            const Bitboard attackMap =
+                PT == Bishop ? chess::attacks::bishop(
+                                   sq, pos.occ() ^ pos.pieces(TYPE_QUEEN))
+                : PT == Queen
+                    ? chess::attacks::queen(sq, pos.occ() ^
+                                                    pos.pieces(TYPE_QUEEN) ^
+                                                    pos.pieces(TYPE_ROOK))
+                    : pos.getAttackMap(sq);
+            // Update king attackers info
+            if (attackMap & cache.kingRing[_C]) {
+                cache.kingAttackersCount[C]++;
+                cache.kingAttackersWeight[C] += KING_ATTACKER_WEIGHT[PT];
+                cache.kingAttackSquares[C] +=
+                    (attackMap & cache.kingRing[_C]).count();
+            }
+            // Update mobility score
+            int mobility = (attackMap & cache.mobilityArea[C]).count();
+            total += MOBILITY_BONUS[PT][mobility];
+
+            if (PT == Knight || PT == Bishop) {
+                // Bonus for being on a outpost square
+                const Bitboard outpostMask =
+                    OUTPOST_SQUARES[C] & (~cache.attackedBy[_C][Pawn]);
+                if (outpostMask & sqbb) {
+                    bool supported = cache.attackedBy[C][Pawn] & sqbb;
+                    total += OUTPOST_BONUS[PT == Bishop][supported];
+                }
+
+                if (PT == Bishop) {
+                    // Penalty for having too many pawns on the same color
+                    // square as the bishop
+                    Bitboard pawns = pos.pieces(TYPE_PAWN, C);
+                    int counter = 0;
+                    while (pawns) {
+                        counter += Square::same_color(Square(pawns.pop()), sq);
+                    }
+                    total -= BISHOP_PAWN_PENALTY * counter;
+                }
+            }
+
+            if (PT == Rook) {
+                // Bonus for being on a (semi-)open file
+                const Bitboard fileMask = Bitboard(sq.file());
+                if (pos.pieces(TYPE_PAWN, C) & fileMask == 0) {
+                    if (pos.pieces(TYPE_PAWN, _C) & fileMask == 0) { // open
+                        total += OPEN_ROOK_BONUS[1];
+                    } else { // semi-open
+                        total += OPEN_ROOK_BONUS[0];
+                    }
+                }
+                // Penalty for being trapped by the king, and even more
+                // if the king cannot castle
+                if (attackMap.count() <= 3) {
+                    chess::File f = sq.file();
+                    chess::File kingFile = pos.kingSq(C).file();
+                    if ((f > chess::File::FILE_E &&
+                         kingFile >= chess::File::FILE_E) ||
+                        (f < chess::File::FILE_D &&
+                         kingFile <= chess::File::FILE_D)) {
+                        total -= TRAPPED_ROOK_PENALTY;
+                        if (!pos.castlingRights().has(C)) {
+                            total -= TRAPPED_ROOK_PENALTY;
+                        }
+                    }
+                }
+            }
         }
-    }
-    return total;
-}
 
-__subeval Score Evaluator::_mobility() const {
-    const Bitboard candidate_mob_area =
-        side ? w_mobility_area : b_mobility_area;
-    Score total;
-    for (chess::PieceType pt :
-         {TYPE_KNIGHT, TYPE_BISHOP, TYPE_ROOK, TYPE_QUEEN}) {
-        Bitboard bb = pos.pieces(pt, __color);
-        while (bb) {
-            Square sq = Square(bb.pop());
-            Bitboard piece_mob_area = pos.getMotionMap(sq) & candidate_mob_area;
-            int mobility_score = piece_mob_area.count();
-            total = total + MOBILITY_BONUS[(int)pt][mobility_score];
+        return total;
+    }
+
+    template <EvalColor C>
+    Score _king() {
+        int kingDanger =
+            cache.kingAttackersCount[C] * cache.kingAttackersWeight[C] +
+            20 * cache.kingAttackSquares[C];
+
+        Score total = Score(kingDanger * kingDanger / 6144, kingDanger / 24);
+        return ~total;
+    }
+
+    /**
+     * Evaluate pawn structures for a given color.
+     */
+    template <EvalColor C>
+    Score _pawns() {
+        const Bitboard ours = pos.pieces(TYPE_PAWN, C);
+        const Bitboard theirs = pos.pieces(TYPE_PAWN, _C);
+        Bitboard pawns = pos.pieces(TYPE_PAWN, C);
+        Score total;
+
+        cache.passedPawns[C].clear();
+
+        while (pawns) {
+            Square sq = pawns.pop();
+
+            // Get properties of the pawn
+            const Bitboard neighbors = ours & NEIGHBOR_FILES_BB[(int)sq.file()];
+            const Bitboard stoppers =
+                theirs & PAWN_STOPPER_MASK[C == Black][sq.index()];
+            const Bitboard phalanx = neighbors & sq.rank().bb();
+            const Bitboard supported = ours & chess::attacks::pawn(_C, sq);
+            const Bitboard doubled =
+                ours &
+                (C == White ? (sq.rank().bb() << 8) : (sq.rank().bb() >> 8));
+            // Punish isolated pawns
+            if (!neighbors) {
+                total -= ISOLATED_PAWN_PENALTY;
+            }
+            // Punish doubled and unspported pawns
+            if (doubled && !supported) {
+                total -= DOUBLED_PAWN_PENALTY;
+            }
+
+            // Cache passed pawns so we can evaluate them later
+            if (!stoppers && !doubled) {
+                cache.passedPawns[C].set(sq.index());
+            }
         }
+
+        return total;
     }
-    return total;
-}
 
-__subeval Score Evaluator::_space() const {
-    // Candidate squares
-    constexpr Bitboard SPACE_MASK =
-        side ? 0x003c3c3c00000000ull : 0x000000003c3c3c00ull;
-    // Drop bad squares
-    Bitboard space;
-    white_specific space =
-        SPACE_MASK & (~b_pawn_atk_bb) & (~pos.pieces(TYPE_PAWN, WHITE));
-    black_specific space =
-        SPACE_MASK & (~w_pawn_atk_bb) & (~pos.pieces(TYPE_PAWN, BLACK));
-    // Apply bonus
-    Score total = SPACE_BONUS * space.count();
-    return total;
-}
-
-__subeval Score Evaluator::_isolated_pawns() const {
-    // Isolated pawns are pawns that have no neighbors. Get all pawns
-    // first.
-    const Bitboard pawns = pos.pieces(TYPE_PAWN, __color);
-    Bitboard bb = pawns;
-
-    Score total;
-    while (bb) {
-        Square sq = Square(bb.pop());
-        const Bitboard mask = PAWN_NEIGHBORING_FILES[(int)sq.file()];
-        if ((pawns & mask) == 0) { // No neighbors
-            total = total + ISOLATED_PAWN_PENALTY;
+    /**
+     * Score passed pawns
+     */
+    template <EvalColor C>
+    Score _passed() {
+        Bitboard b = cache.passedPawns[C];
+        Score total;
+        while (b) {
+            Square sq = b.pop();
+            int distance = C == White ? (7 - sq.rank()) : ((int)sq.rank());
+            total += PASSED_PAWN_BONUS[distance];
         }
+        return total;
     }
-    return total;
-}
 
-__subeval Score Evaluator::_doubled_pawns() const {
-    // A pawn is considered a doubled pawn only if it is right in front of
-    // another friendly pawn.
-    const Bitboard pawns = pos.pieces(TYPE_PAWN, __color);
-    // Loop through all pawns and check if there is another pawn in front
-    Bitboard bb = pawns;
-    Score total;
-    while (bb) {
-        Square sq = Square(bb.pop());
-        Square frontSq;
-        white_specific frontSq = sq + chess::Direction::NORTH;
-        black_specific frontSq = sq + chess::Direction::SOUTH;
-        if (pawns & Bitboard::fromSquare(frontSq)) {
-            total = total + DOUBLED_PAWN_PENALTY;
+    /**
+     * Estimate game phase from material. This must be called after
+     * `_check_material`.
+     */
+    int _phase() {
+        int m = (cache.nonPawnMaterial[0] + cache.nonPawnMaterial[1]).mg;
+        constexpr int ENDGAME_LIMIT = 1600;
+        constexpr int MIDGAME_LIMIT = 7700;
+        m = std::clamp(m, ENDGAME_LIMIT, MIDGAME_LIMIT);
+        return ((m - ENDGAME_LIMIT) * ALL_GAME_PHASES) /
+               (MIDGAME_LIMIT - ENDGAME_LIMIT);
+    }
+
+  public:
+    Value operator()() {
+        // First, check material and cache the results
+        _countMaterial<White>();
+        _countMaterial<Black>();
+        Score total =
+            cache.nonPawnMaterial[White] - cache.nonPawnMaterial[Black];
+        total += cache.psqt[White] - cache.psqt[Black];
+        total += PIECE_VALUE[Pawn] * (pos.countPieces(TYPE_PAWN, WHITE) -
+                                      pos.countPieces(TYPE_PAWN, BLACK));
+        // Initialize
+        _init<White>();
+        _init<Black>();
+        // Evaluate different aspects of the position
+        total += _piece<White, Knight>() - _piece<Black, Knight>();
+        total += _piece<White, Bishop>() - _piece<Black, Bishop>();
+        total += _piece<White, Rook>() - _piece<Black, Rook>();
+        total += _piece<White, Queen>() - _piece<Black, Queen>();
+        total += _pawns<White>() - _pawns<Black>();
+        total += _passed<White>() - _passed<Black>();
+
+        total += _king<White>() - _king<Black>();
+
+        int phase = _phase();
+        Value v = total.fuse(phase);
+
+        if (pos.sideToMove() == BLACK) {
+            v = ~v; // flip the score so it is always POV
         }
+        // Give a tempo bonus to the side to move
+        v += TEMPO_BONUS;
+
+        return v;
     }
-    return total;
+};
+
+#undef _C
+
+} // namespace
+
+/**
+ * Main evaluation function.
+ */
+Value evaluate(Position &pos) {
+    return Evaluator(pos)();
 }
 
-__subeval Score Evaluator::_supported_pawns() const {
-    const Bitboard pawns = pos.pieces(TYPE_PAWN, __color);
-    Bitboard bb = pawns;
-    Score total;
-    while (bb) {
-        Square sq = Square(bb.pop());
-        Bitboard supporting = (chess::attacks::pawn(__color, sq) & pawns);
-        total = SUPPORTED_PAWN_BONUS * supporting.count();
-    }
-    return total;
-}
-
-__subeval Score Evaluator::_passed_pawns() const {
-    Score total;
-    Bitboard bb = side ? w_passed_pawns : b_passed_pawns;
-    while (bb) {
-        Square sq = Square(bb.pop());
-        int distance = side ? (7 - sq.rank()) : ((int)sq.rank());
-        total = total + PASSED_PAWN_BONUS[distance];
-    }
-    return total;
-}
-
-__subeval Score Evaluator::_passed_unblocked() const {
-    Score total;
-    Bitboard bb = side ? w_passed_pawns : b_passed_pawns;
-    const Bitboard blockers = side ? pos.us(BLACK) : pos.us(WHITE);
-
-    while (bb) {
-        Square sq = Square(bb.pop());
-        // Additional check for any blockers
-        const Bitboard mask =
-            PASSED_PAWN_DETECT_MASK[(int)__color][sq.index()] &
-            Bitboard(sq.file());
-        if ((mask & blockers) == 0) {
-            int distance = side ? (7 - sq.rank()) : ((int)sq.rank());
-            total = total + UNBLOCKED_PASSED_PAWN_BONUS[distance];
-        }
-    }
-    return total;
-}
-
-__subeval Score Evaluator::_bishop_pair() const {
-    return pos.pieces(TYPE_BISHOP, __color).count() >= 2 ? BISHOP_PAIR_BONUS
-                                                         : S(0, 0);
-}
-
-__subeval Score Evaluator::_king_attackers() const {
-    Bitboard kingRing = side ? w_king_ring : b_king_ring;
-    Value total = 0;
-    while (kingRing) {
-        Square sq = Square(kingRing.pop());
-        Bitboard attackersBB = chess::attacks::attackers(pos, ~__color, sq);
-        total = total +
-                (attackersBB & pos.pieces(TYPE_KNIGHT, ~__color)).count() *
-                    KING_ATTACKER_WEIGHT[1] +
-                (attackersBB & pos.pieces(TYPE_BISHOP, ~__color)).count() *
-                    KING_ATTACKER_WEIGHT[2] +
-                (attackersBB & pos.pieces(TYPE_ROOK, ~__color)).count() *
-                    KING_ATTACKER_WEIGHT[3] +
-                (attackersBB & pos.pieces(TYPE_QUEEN, ~__color)).count() *
-                    KING_ATTACKER_WEIGHT[4];
-    }
-
-    return S(-total, -total / 4); // penalty
-}
-
-__subeval Score Evaluator::_weak_king_squares() const {
-    Bitboard kingRing = side ? w_king_ring : b_king_ring;
-    Value total = 0;
-    while (kingRing) {
-        Square sq = Square(kingRing.pop());
-        Bitboard defenders =
-            (pos.pieces(TYPE_QUEEN, __color) | pos.pieces(TYPE_KING, __color)) &
-            chess::attacks::king(sq);
-        if (defenders.count() <= 1) {
-            total = total - WEAK_KING_SQUARE_PENALTY;
-        }
-    }
-    return S(total, total / 4);
-}
+/**
+ * info depth 2 score cp 29 nodes    962 pv b1c3
+ * info depth 4 score cp 46 nodes   6453 pv b1c3
+ * info depth 6 score cp 57 nodes  48132 pv d2d4
+ * info depth 8 score cp 60 nodes 305803 pv g1f3
+ */

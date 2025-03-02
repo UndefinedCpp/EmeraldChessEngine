@@ -7,7 +7,7 @@ using S = Score;
  * Base values for all pieces
  */
 constexpr S PIECE_VALUE[] = {
-    S( 89, 103),S(286,328),S(312,356),S(538,590),S(1043,1100),S(  0,  0)
+    S( 89, 103),S(306,338),S(322,356),S(538,590),S(1043,1100),S(  0,  0)
 };
 
 /**
@@ -103,37 +103,39 @@ constexpr S MOBILITY_BONUS[6][32] = {
     },
     // Rooks
     {
-        S(-30,-39),S(-10, -8),S(  1, 11),S(  1, 19),S(  1, 35),S(  5, 49),S( 11, 51),S( 15, 60),
-        S( 20, 67),S( 20, 69),S( 20, 79),S( 24, 82),S( 28, 84),S( 28, 84),S( 31, 86)
+        S(-15,-20),S( -5, -4),S(  0,  5),S(  0,  9),S(  0, 18),S(  3, 25),S(  5, 25),S(  7, 30),
+        S( 10, 33),S( 10, 34),S( 10, 39),S( 12, 41),S( 14, 42),S( 14, 42),S( 15, 43)
     },
     // Queens
     {
-        S(-15,-24),S( -6,-15),S( -4, -3),S( -4,  9),S( 10, 20),S( 11, 27),S( 11, 29),S( 17, 37),
-        S( 19, 39),S( 26, 48),S( 32, 48),S( 32, 50),S( 32, 60),S( 33, 63),S( 33, 65),S( 33, 66),
-        S( 36, 68),S( 36, 70),S( 38, 73),S( 39, 75),S( 46, 75),S( 54, 84),S( 54, 84),S( 54, 85),
-        S( 55, 91),S( 57, 91),S( 57, 96),S( 58,109)
+        S( -8,-12),S( -3, -8),S( -2, -3),S( -2,  5),S(  5, 10),S(  5, 14),S(  5, 15),S(  8, 18),
+        S(  9, 20),S( 13, 24),S( 16, 24),S( 16, 25),S( 16, 30),S( 16, 32),S( 17, 33),S( 16, 33),
+        S( 18, 34),S( 18, 35),S( 19, 36),S( 19, 26),S( 23, 36),S( 27, 42),S( 27, 42),S( 27, 43),
+        S( 23, 45),S( 28, 45),S( 28, 48),S( 29, 52)
     },
     // Unused
     {}
 };
 
-constexpr S SPACE_BONUS = S(  2,  0);
-constexpr S ISOLATED_PAWN_PENALTY = S(-2, -8);
-constexpr S DOUBLED_PAWN_PENALTY = S(-5, -28);
-constexpr S BISHOP_PAIR_BONUS = S(20, 30);
-constexpr S SUPPORTED_PAWN_BONUS = S(10, 6);
+constexpr S OUTPOST_BONUS[2][2] = {
+    {S( 11,  3), S( 18,  6)}, // Knight
+    {S(  5,  1), S(  8,  3)}  // Bishop
+};
+constexpr S ISOLATED_PAWN_PENALTY = S(3, 8);
+constexpr S DOUBLED_PAWN_PENALTY = S(5, 23);
+constexpr S MINOR_KING_PROTECTOR = S(3, 4);
+constexpr S WEAK_QUEEN_PENALTY = S(25, 5);
+constexpr S TRAPPED_ROOK_PENALTY = S(45, 2);
+constexpr S OPEN_ROOK_BONUS[2] = {S(  9,  4), S( 22, 10)};
+constexpr S BISHOP_PAWN_PENALTY = S(  3,  8);
+
 constexpr S PASSED_PAWN_BONUS[] = {
     S(  0,  0),S(138,130),S( 84, 88),S( 31, 36),S(  8, 20),S(  5, 16),S(  0,  8),S(  0,  0)
 };
-constexpr S UNBLOCKED_PASSED_PAWN_BONUS[] = {
-    S(  0,  0),S(200,200),S(150,150),S(100,100),S( 20, 20),S(  0,  0),S(  0,  0),S(  0,  0)
-};
-
 
 constexpr int KING_ATTACKER_WEIGHT[] = {
-    0, 40, 21, 22, 5, 0
+    0, 81, 52, 44, 10, 0
 };
-constexpr Value WEAK_KING_SQUARE_PENALTY = Value(-8);
 
 constexpr Value TEMPO_BONUS = Value(13);
 
@@ -142,7 +144,7 @@ constexpr Value TEMPO_BONUS = Value(13);
  * Bitboard masks to test adjacent/neighbor files of a square. Used to 
  * test isolated pawns.
  */
-constexpr Bitboard PAWN_NEIGHBORING_FILES[8] = {
+constexpr Bitboard NEIGHBOR_FILES_BB[8] = {
     Bitboard(0x4040404040404040),
     Bitboard(0xA0A0A0A0A0A0A0A0),
     Bitboard(0x5050505050505050),
@@ -151,6 +153,11 @@ constexpr Bitboard PAWN_NEIGHBORING_FILES[8] = {
     Bitboard(0x0A0A0A0A0A0A0A0A),
     Bitboard(0x0505050505050505),
     Bitboard(0x0202020202020202)
+};
+
+constexpr Bitboard OUTPOST_SQUARES[2] = {
+    0x000000007E7E7E00,
+    0x007E7E7E00000000,
 };
 
 /**
@@ -170,7 +177,7 @@ constexpr Bitboard KING_RING_BB[64] = {
     0x3838380000000000, 0x7070700000000000, 0xe0e0e00000000000, 0xe0e0e00000000000
 };
 
-constexpr Bitboard PASSED_PAWN_DETECT_MASK[2][64] = {
+constexpr Bitboard PAWN_STOPPER_MASK[2][64] = {
     // White
     {
         0x303030303030300, 0x707070707070700, 0xe0e0e0e0e0e0e00, 0x1c1c1c1c1c1c1c00, 
@@ -201,4 +208,9 @@ constexpr Bitboard PASSED_PAWN_DETECT_MASK[2][64] = {
         0xe0e0e0e0e0e0, 0xc0c0c0c0c0c0, 0x3030303030303, 0x7070707070707, 0xe0e0e0e0e0e0e, 
         0x1c1c1c1c1c1c1c, 0x38383838383838, 0x70707070707070, 0xe0e0e0e0e0e0e0, 0xc0c0c0c0c0c0c0 
     }
+};
+
+constexpr Bitboard COLORED_SQUARES_MASK[] = {
+    0x5555555555555555, // light squares
+    0xaaaaaaaaaaaaaaaa  // dark squares
 };

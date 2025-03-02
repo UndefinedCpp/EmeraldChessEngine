@@ -5,8 +5,6 @@
 #include "types.h"
 #include <chrono>
 
-using TimePoint = std::chrono::time_point<std::chrono::steady_clock>;
-
 struct SearchParams {
     bool infinite; // Infinite search
     bool ponder;
@@ -27,16 +25,14 @@ struct SearchParams {
 };
 
 struct SearchDiagnosis {
-    uint32_t evals;
-    uint32_t nodes;
-    uint32_t qnodes;
-    uint32_t seldepth;
+    int32_t evals;
+    int32_t nodes;
+    int32_t qnodes;
+    int32_t seldepth;
 
     SearchDiagnosis() : evals(0), qnodes(0), nodes(0), seldepth(0) {
     }
 };
-
-enum NodeType : uint8_t { PVNode, NonPVNode };
 
 class Searcher {
   private:
