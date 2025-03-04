@@ -2,6 +2,8 @@
 #include "evalconstants.h"
 #include <cmath>
 
+#define EVALUATOR_TRACING_ENABLED
+
 std::pair<bool, Value> checkGameStatus(Position &board) {
     // Generate legal moves to validate checkmate or stalemate
     Movelist moves = board.legalMoves();

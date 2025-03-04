@@ -137,7 +137,8 @@ void execute(const std::string &command) {
     // <Util> d
     // Display the board
     if (token == "d") {
-        std::cout << uci::board << std::endl;
+        std::cout << uci::board << "\n"
+                  << "Evaluation: " << evaluate(uci::board) << std::endl;
         return;
     }
 
