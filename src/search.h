@@ -34,6 +34,15 @@ struct SearchDiagnosis {
     }
 };
 
+/**
+ * This keeps track of information gained while searching.
+ */
+struct Scratchpad {
+    int ply;                  // current ply
+    KillerHeuristics killers; // killer moves
+    uint16_t *pv;             // principal variation
+};
+
 class Searcher {
   private:
     KillerHeuristics killerMoves[128]; // todo maximum 128 plys

@@ -203,6 +203,4 @@ constexpr Value MATE_GIVEN = Value(32767);
 constexpr Value MATED_VALUE = Value(-32767);
 constexpr Value DRAW_VALUE = Value(0);
 
-enum NodeType : uint8_t { PVNode, NonPVNode };
-
 using TimePoint = std::chrono::time_point<std::chrono::steady_clock>;

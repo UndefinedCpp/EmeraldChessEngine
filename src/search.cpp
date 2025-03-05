@@ -12,6 +12,11 @@
 constexpr int QSEARCH_DEPTH = 8; // can be tuned
 
 /**
+ * Used as a template parameter to distinguish between PV and non-PV nodes.
+ */
+enum NodeType { PVNode, NonPVNode };
+
+/**
  * Quiescence search.
  *
  * The primary goal of quiescence search is to avoid the "horizon effect," a
