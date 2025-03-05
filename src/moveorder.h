@@ -35,8 +35,8 @@ template <OrderMode mode>
 class MoveOrderer {
   private:
     std::vector<Move> buffer;
-    KillerHeuristics _killers;
-    Move _pvMoveFromIteration;
+    KillerHeuristics killers;
+    Move hashMove;
     size_t pointer;
     OrderMode type;
 
@@ -82,7 +82,7 @@ class MoveOrderer {
                 }
             }
             // Bonus for PV move from last iteration
-            if (_pvMoveFromIteration.isValid() && _pvMoveFromIteration == m) {
+            if (hashMove.isValid() && hashMove == m) {
                 score += MOVE_ORDERING_PV_BONUS;
             }
             m.setScore(score);
@@ -108,7 +108,7 @@ class MoveOrderer {
     }
 
     inline void init(Position &pos, const KillerHeuristics *killers = nullptr,
-                     const Move *pvMoveFromIteration = nullptr) {
+                     const Move hashMove = Move::NO_MOVE) {
         // Generate legal moves
         Movelist legalmoves = pos.legalMoves();
         buffer.reserve(buffer.size() + legalmoves.size());
@@ -131,14 +131,11 @@ class MoveOrderer {
         }
         // Add killers
         if (killers) {
-            _killers = *killers;
+            this->killers = *killers;
         }
-        // Add pv move
-        if (pvMoveFromIteration) {
-            _pvMoveFromIteration = *pvMoveFromIteration;
-        } else {
-            _pvMoveFromIteration = Move::NO_MOVE;
-        }
+        // Add hash move
+        this->hashMove = hashMove;
+
         scoreMoves(pos);
         sortMoves();
     }

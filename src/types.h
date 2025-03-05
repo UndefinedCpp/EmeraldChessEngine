@@ -62,6 +62,14 @@ class Value {
                m_value <= -MATE_VALUE_THRESHOLD;
     }
 
+    constexpr static Value mateIn(int ply) {
+        return Value(32767 - ply);
+    }
+
+    constexpr static Value matedIn(int ply) {
+        return Value(-32767 + ply);
+    }
+
     int value() const {
         return m_value;
     }
@@ -136,11 +144,11 @@ class Value {
     inline bool operator!=(const Value &rhs) const {
         return m_value != rhs.m_value;
     }
-    inline Value& operator+=(const Value &rhs) {
+    inline Value &operator+=(const Value &rhs) {
         m_value += rhs.m_value;
         return *this;
     }
-    inline Value& operator-=(const Value &rhs) {
+    inline Value &operator-=(const Value &rhs) {
         m_value -= rhs.m_value;
         return *this;
     }
@@ -198,9 +206,10 @@ class Score {
     }
 };
 
-constexpr Value MATE_VALUE = Value(32767);
-constexpr Value MATE_GIVEN = Value(32767);
-constexpr Value MATED_VALUE = Value(-32767);
+constexpr Value MATE_VALUE = Value::mateIn(0);
+constexpr Value MATED_VALUE = Value::matedIn(0);
 constexpr Value DRAW_VALUE = Value(0);
 
 using TimePoint = std::chrono::time_point<std::chrono::steady_clock>;
+
+constexpr int MAX_PLY = 128;

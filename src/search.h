@@ -35,23 +35,36 @@ struct SearchDiagnosis {
 };
 
 /**
- * This keeps track of information gained while searching.
+ * This keeps track of information gained while searching. It is indexed by
+ * ply.
  */
 struct Scratchpad {
     int ply;                  // current ply
     KillerHeuristics killers; // killer moves
     uint16_t *pv;             // principal variation
+    Value staticValue;        // static evaluation
+    bool skipPruning;         // skip pruning
+
+    Scratchpad() : ply(0), pv(nullptr), staticValue(0), skipPruning(false) {
+    }
 };
+
+/**
+ * Used as a template parameter to distinguish between PV and non-PV nodes.
+ */
+enum NodeType { PVNode, NonPVNode };
 
 class Searcher {
   private:
-    KillerHeuristics killerMoves[128]; // todo maximum 128 plys
-    Move pvMoveFromIteration;          // move from previous iteration
+    KillerHeuristics killerMoves[MAX_PLY];
+    Move pvMoveFromIteration; // move from previous iteration
     Value pvScoreFromIteration;
 
     uint32_t maxThinkingTime;
     TimePoint startTime;
     bool searchAborted;
+
+    uint32_t searchCallCount;
 
   public:
     SearchDiagnosis diagnosis;
@@ -65,12 +78,12 @@ class Searcher {
     std::pair<Move, Value> search();
 
   private:
-    Value qsearch(Value alpha, Value beta, int plyRemaining, int plyFromRoot);
+    template <NodeType NT>
+    Value negamax(Scratchpad *sp, Value alpha, Value beta, int depth,
+                  bool cutnode);
 
     template <NodeType NT>
-    Value negamax(Value alpha, Value beta, int plyRemaining, int plyFromRoot,
-                  bool canNullMove);
-    std::pair<Move, Value> negamax_root(int depth, Value alpha, Value beta);
+    Value qsearch(Scratchpad *sp, Value alpha, Value beta, int depth);
 
     bool checkTime();
 };

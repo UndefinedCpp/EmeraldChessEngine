@@ -94,6 +94,12 @@ class Position : public Board {
         return pieces(type, color).count();
     }
 
+    bool hasNonPawnMaterial(const Color color) const {
+        const Bitboard occupied = us(color);
+        const Bitboard pawns = pieces(TYPE_PAWN, color);
+        return (occupied & ~pawns) != 0;
+    }
+
   public:
     /**
      * Yet another way to quick access the board

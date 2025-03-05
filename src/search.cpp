@@ -11,225 +11,168 @@
 
 constexpr int QSEARCH_DEPTH = 8; // can be tuned
 
-/**
- * Used as a template parameter to distinguish between PV and non-PV nodes.
- */
-enum NodeType { PVNode, NonPVNode };
+template <NodeType NT>
+Value Searcher::negamax(Scratchpad *sp, Value alpha, Value beta, int depth,
+                        bool cutnode) {
+    // Get basic information about the current node
+    constexpr bool isPVNode = NT == PVNode;
+    const bool isRootNode = PVNode && ((sp - 1)->ply == 0);
 
-/**
- * Quiescence search.
- *
- * The primary goal of quiescence search is to avoid the "horizon effect," a
- * phenomenon where the search ends right before an immediate tactics, resulting
- * in poor performance. By extending the search in non-quiet positions,
- * quiescence search ensures a more accurate evaluation in these cases.
- *
- * See https://www.chessprogramming.org/Quiescence_Search.
- */
-Value Searcher::qsearch(Value alpha, Value beta, int plyRemaining,
-                        int plyFromRoot) {
-    // Check game status first.
-    const auto [gameOver, gameResultValue] = checkGameStatus(pos);
-    if (gameOver) {
-        return gameResultValue.addPly(plyFromRoot);
+    assert(MATED_VALUE <= alpha && alpha <= MATE_VALUE);
+    assert(MATED_VALUE <= beta && beta <= MATE_VALUE);
+    assert(isPVNode || (alpha == beta - 1));
+    assert(!(isPVNode || cutnode));
+
+    uint16_t pv[MAX_PLY + 1];
+    Value eval = DRAW_VALUE;
+    Move bestMove = Move::NO_MOVE;
+
+    /**
+     * (1) Initialize the search, and return early on special cases
+     */
+    const bool isInCheck = pos.inCheck();
+    Value bestValue = MATED_VALUE;
+    sp->ply = (sp - 1)->ply + 1;
+
+    if (searchCallCount > 1000) {
+        searchCallCount = 0; // reset counter
+        if (checkTime()) {   // abort immediately if time is up
+            searchAborted = true;
+            return 0;
+        }
     }
 
-    // A player isn't typically forced to make a capture, so even if we searched
-    // a bad value, it doesn't nessessarily mean we were doomed to lose. So we
-    // keep this static evaluation as lower bound. A more detailed explanation
-    // and discussion can be found at the link above.
-    Value eval = evaluate(pos);
-    diagnosis.qnodes++;
-    diagnosis.nodes++;
-    if (plyFromRoot >= diagnosis.seldepth) {
-        diagnosis.seldepth = plyFromRoot;
+    diagnosis.nodes++; // increase node counter
+    if (isPVNode && (sp->ply > diagnosis.seldepth)) {
+        diagnosis.seldepth = sp->ply; // update seldepth
     }
-    if (plyRemaining <= 0) {
-        // An extreme case is that there are so many captures that we have gone
-        // too deep into the tree. In this case, we just return the static
-        // value.
+
+    if (!isRootNode) {
+        if (pos.isHalfMoveDraw()) {
+            auto [_, drawType] = pos.getHalfMoveDrawType();
+            if (drawType == chess::GameResult::DRAW) {
+                return DRAW_VALUE;
+            } else {
+                return Value::matedIn(sp->ply);
+            }
+        }
+        if (pos.isRepetition()) {
+            return DRAW_VALUE;
+        }
+
+        /**
+         * (2) Mate Distance Pruning.
+         *
+         * If a forced mate has been found, cut trees and adjust bounds of lines
+         * where no shorter mate is possible. This normally doesn't help improve
+         * playing strength, but it still helps to find faster mate proofs.
+         */
+        alpha = std::max(alpha, Value::matedIn(sp->ply));
+        beta = std::min(beta, Value::mateIn(sp->ply));
+        if (alpha >= beta) {
+            return alpha;
+        }
+    }
+
+    /**
+     * (3) Transposition Table lookup.
+     */
+    TTEntry *ttEntry = tt.probe(pos);
+    const ttHit = ttEntry != nullptr;
+    Value ttValue = DRAW_VALUE;
+    if (ttHit) {
+        ttValue =
+            ttEntry->value >= MATE_VALUE_THRESHOLD    ? Value::mateIn(sp->ply)
+            : ttEntry->value <= -MATE_VALUE_THRESHOLD ? Value::matedIn(sp->ply)
+                                                      : ttEntry->value;
+    }
+    Move ttMove = ttHit ? ttEntry->move() : Move::NO_MOVE;
+
+    if (!isPVNode                   // at non-PV nodes
+        && ttHit                    // entry found
+        && ttEntry->depth > sp->ply // deeper so more accurate
+        && (ttValue >= beta ? (ttEntry->type == EntryType::UPPER_BOUND)
+                            : (ttEntry->type == EntryType::LOWER_BOUND))) {
+        return ttValue; // TT cutoff
+    }
+    if (isPVNode                                      // at PV nodes
+        && ttHit && ttEntry->type == EntryType::EXACT // exact bound only
+        && ttEntry->depth >= sp->ply                  // deeper analysis
+    ) {
+        return ttValue; // Exact position has been evaluated before
+    }
+
+    /**
+     * (4) Static evaluation when not in check.
+     */
+    if (isInCheck) {
+        goto loop;
+    } else {
+        sp->staticValue = eval = evaluate(pos);
+    }
+
+    if (sp->skipPruning)
+        goto loop;
+
+    /**
+     * (5) Futility pruning.
+     */
+    if (!isRootNode                   // at child node
+        && depth < 7                  // near frontier nodes
+        && eval >= beta + depth * 100 // large margin
+        && !isInCheck && pos.hasNonPawnMaterial()) {
         return eval;
     }
-    if (eval >= beta) { // beta cutoff
-        return beta;
-    }
 
-    if (eval > alpha) {
-        alpha = eval;
-    }
-    // Generate moves to search. Here, we only search captures and promotions.
-    MoveOrderer<OrderMode::QUIET> orderer;
-    Move m;
+    /**
+     * (6) Null move pruning
+     */
+    if (!isPVNode                   // at non-PV nodes
+        && eval >= beta             //
+        && depth >= 5               // ensure enough depth
+        && pos.hasNonPawnMaterial() // prevent zugswang
+    ) {
+        pos.makeNullMove();
+        (sp + 1)->skipPruning = true;
+        Value nullVal =
+            -negamax<NonPVNode>(sp + 1, -beta, -beta + 1, depth - 3, !cutnode);
+        (sp + 1)->skipPruning = false;
+        pos.unmakeNullMove();
 
-    orderer.init(pos);
-    while ((m = orderer.get()).isValid()) {
-        pos.makeMove(m);
-        eval = -qsearch(-beta, -alpha, plyRemaining - 1, plyFromRoot + 1);
-        pos.unmakeMove(m);
-
-        if (eval >= beta) {
-            return beta;
-        }
-        if (eval > alpha) {
-            alpha = eval;
-        }
-    }
-    return alpha;
-}
-
-/**
- * Implements search based on negamax framework.
- */
-template <NodeType NT>
-Value Searcher::negamax(Value alpha, Value beta, int plyRemaining,
-                        int plyFromRoot, bool canNullMove) {
-    // Check game status
-    const auto [gameOver, gameResultValue] = checkGameStatus(pos);
-    if (gameOver) {
-        return gameResultValue.addPly(plyFromRoot);
-    }
-    // Check time
-    if (checkTime()) {
-        searchAborted = true;
-        return 0;
-    }
-
-    diagnosis.nodes++;
-
-    if (plyFromRoot >= diagnosis.seldepth) {
-        diagnosis.seldepth = plyFromRoot;
-    }
-
-    constexpr bool isPVNode = NT == PVNode;
-
-    // Transposition table lookup
-    TTEntry *entry = tt.probe(pos);
-    if (entry && entry->depth >= plyFromRoot) {
-        if (!isPVNode && entry->type == EntryType::EXACT) {
-            return entry->value;
-        }
-        if (entry->type == EntryType::LOWER_BOUND) {
-            alpha = std::max(alpha, entry->value);
-        }
-        if (entry->type == EntryType::UPPER_BOUND) {
-            beta = std::min(beta, entry->value);
-        }
-        if (alpha >= beta) {
-            return entry->value;
+        if (nullVal >= beta) {
+            if (nullVal.isMate()) { // Could be unproven mate
+                return beta;
+            } else {
+                return nullVal; // TODO verify value at high depth
+            }
         }
     }
 
-    // Quiescence search if we hit search depth limit
-    if (plyRemaining <= 0) {
-        return qsearch(alpha, beta, QSEARCH_DEPTH, plyFromRoot);
-    }
-
-    // Set up move ordering
+loop: // This label marks the beginning of the search loop
+    /**
+     * (7) Loop through all the moves
+     */
     MoveOrderer<OrderMode::DEFAULT> orderer;
+    orderer.init(pos, sp->killers, ttMove);
 
-    if (entry) { // Hash move from transposition table if available
-        Move ttHashMove = entry->move();
-        orderer.init(pos, &killerMoves[plyFromRoot], &ttHashMove);
-    } else {
-        orderer.init(pos, &killerMoves[plyFromRoot]);
-    }
-
-    Move bestMove(Move::NO_MOVE);
+    int moveCount = 0;
     Move m;
-    EntryType ttEntryType = EntryType::UPPER_BOUND;
-    int movesSearched = 0;
 
-    while ((m = orderer.get()).isValid()) {
-        /**
-         * Null Move Pruning.
-         *
-         * In almost all chess positions, making a null move is worse than the
-         * best legal move. If a reduced search on a null move fails high, the
-         * best move will possibly fail high too.
-         *
-         * See https://www.chessprogramming.org/Null_Move_Pruning.
-         */
-        if (!isPVNode && canNullMove && plyRemaining >= 3 && !pos.inCheck()) {
-            pos.makeNullMove();
-            Value eval = -negamax<NonPVNode>(-beta, -beta + 1, plyRemaining - 3,
-                                             plyFromRoot + 1, false);
-            pos.unmakeNullMove();
-            if (eval >= beta) {
-                return eval;
-            }
-        }
-
-        // Principal Variation Search
-        pos.makeMove(m);
-        Value eval;
-        if (movesSearched == 0) {
-            eval = -negamax<NT>(-beta, -alpha, plyRemaining - 1,
-                                plyFromRoot + 1, true);
-        } else {
-            eval = -negamax<NonPVNode>(-alpha - 1, -alpha, plyRemaining - 1,
-                                       plyFromRoot + 1, true);
-            if (eval > alpha && isPVNode) { // research
-                eval = -negamax<PVNode>(-beta, -alpha, plyRemaining - 1,
-                                        plyFromRoot + 1, true);
-            }
-        }
-        pos.unmakeMove(m);
-
-        // The position is too good for us that the opponent should have played
-        // another move to prevent this. (Fail high)
-        if (eval >= beta) {
-            // Store evaluation in transposition table
-            tt.store(pos, EntryType::LOWER_BOUND, plyFromRoot, m, beta);
-            // Update killer and history heuristics for non-capture moves
-            if (!pos.isCapture(m)) {
-                this->killerMoves[plyFromRoot].add(m);
-            }
-            return beta;
-        }
-        // A new best move has been found
-        if (eval > alpha) {
-            alpha = eval;
-            bestMove = m;
-            ttEntryType = EntryType::EXACT;
-        }
-
-        movesSearched++;
+    while ((m = orderer.get()) != Move::NO_MOVE) {
+        moveCount++;
     }
 
-    tt.store(pos, ttEntryType, plyFromRoot, bestMove, alpha);
-    return alpha;
-}
-
-std::pair<Move, Value> Searcher::negamax_root(int depth, Value alpha,
-                                              Value beta) {
-    Move bestMove = Move::NO_MOVE;
-    Value bestScore = MATED_VALUE;
-    Move m;
-    MoveOrderer<OrderMode::DEFAULT> orderer;
-    orderer.init(pos, nullptr, &pvMoveFromIteration);
-
-    searchAborted = false;
-    int movesSearched = 0;
-    while ((m = orderer.get()).isValid()) {
-        pos.makeMove(m);
-        Value eval;
-        if (movesSearched == 0) {
-            eval = -negamax<PVNode>(beta, alpha, depth - 1, 1, true);
-        } else {
-            eval = -negamax<NonPVNode>(alpha - 1, alpha, depth - 1, 1, true);
-            if (eval > alpha) { // research
-                eval = -negamax<PVNode>(beta, alpha, depth - 1, 1, true);
-            }
-        }
-        pos.unmakeMove(m);
-
-        if (eval >= bestScore) {
-            bestScore = eval;
-            bestMove = m;
-        }
+    // Check for checkmate or stalemate
+    if (moveCount == 0) {
+        bestValue = isInCheck ? Value::matedIn(sp->ply) : DRAW_VALUE;
     }
 
-    return {bestMove, bestScore};
+    tt.store(pos,
+             (bestValue >= beta)              ? EntryType::LOWER_BOUND
+             : (PVNode && bestMove.isValid()) ? EntryType::EXACT
+                                              : EntryType::UPPER_BOUND,
+             depth, bestMove, bestValue);
+    return bestValue;
 }
 
 std::pair<Move, Value> Searcher::search() {
