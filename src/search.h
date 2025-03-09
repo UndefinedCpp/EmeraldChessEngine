@@ -43,6 +43,11 @@ struct Scratchpad {
     uint16_t *pv;             // principal variation
 };
 
+/**
+ * Used as a template parameter to distinguish between PV and non-PV nodes.
+ */
+enum NodeType { PVNode, NonPVNode };
+
 class Searcher {
   private:
     KillerHeuristics killerMoves[128]; // todo maximum 128 plys

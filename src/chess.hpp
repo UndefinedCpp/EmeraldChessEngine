@@ -644,7 +644,7 @@ class Bitboard {
         bits = 0xFFULL << (8 * static_cast<int>(rank.internal()));
     }
 
-    explicit operator bool() const noexcept { return bits != 0; }
+    operator bool() const noexcept { return bits != 0; }
 
     explicit operator std::string() const {
         std::bitset<64> b(bits);
