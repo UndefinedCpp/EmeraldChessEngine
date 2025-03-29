@@ -1,5 +1,6 @@
 #include "uci.h"
 #include "chess.hpp"
+#include "eval.h"
 #include "search.h"
 
 namespace uci {

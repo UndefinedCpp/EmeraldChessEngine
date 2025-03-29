@@ -21,6 +21,7 @@ private:
 
     Position &pos;
     std::vector<MoveEntry> q;
+    size_t m_size;
 
     int16_t score(const Move m);
 
@@ -32,5 +33,9 @@ public:
     void init(KillerTbl *killerTable = nullptr,
               HistTbl *historyTable = nullptr);
     void initQuiet(HistTbl *historyTable = nullptr);
-    inline Move pick();
+    Move pick();
+
+    inline int16_t size() const {
+        return m_size;
+    }
 };

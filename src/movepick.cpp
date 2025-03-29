@@ -356,8 +356,7 @@ namespace {
 MovePicker::MovePicker(Position &pos) : pos(pos) {
 }
 
-void MovePicker::init(KillerTbl *killerTable = nullptr,
-                      HistTbl *histTable = nullptr) {
+void MovePicker::init(KillerTbl *killerTable, HistTbl *histTable) {
     Movelist moves = pos.legalMoves();
     for (size_t i = 0; i < moves.size(); ++i) {
         const Move move = moves[i];
@@ -374,13 +373,14 @@ void MovePicker::init(KillerTbl *killerTable = nullptr,
             }
         }
 
-        q.emplace_back(move.move(), s);
+        q.push_back(MoveEntry{move.move(), s});
     }
 
     std::sort(q.begin(), q.end(), std::less<>()); // ascending order
+    m_size = q.size();
 }
 
-void MovePicker::initQuiet(HistTbl *historyTable = nullptr) {
+void MovePicker::initQuiet(HistTbl *historyTable) {
     Movelist moves = pos.generateCaptureMoves();
     for (size_t i = 0; i < moves.size(); ++i) {
         const Move move = moves[i];
@@ -392,10 +392,11 @@ void MovePicker::initQuiet(HistTbl *historyTable = nullptr) {
             s += historyTable->get(move, pt, isWhite);
         }
 
-        q.emplace_back(move.move(), s);
+        q.push_back(MoveEntry{move.move(), s});
     }
 
     std::sort(q.begin(), q.end(), std::less<>()); // ascending order
+    m_size = q.size();
 }
 
 /**
@@ -432,12 +433,13 @@ int16_t MovePicker::score(Move move) {
     }
     // Penalty for queens to move to a square attacked by opponent
     if (aggressor == TYPE_QUEEN) {
-        Bitboard enemy = pos.pieces(TYPE_ROOK, ~stm) |
-                         pos.pieces(TYPE_BISHOP, ~stm) |
-                         pos.pieces(TYPE_KNIGHT, ~stm);
-        Bitboard range = attacks::queen(move.to(), pos.occ());
+        const Bitboard enemy = pos.pieces(TYPE_ROOK, ~stm) |
+                               pos.pieces(TYPE_BISHOP, ~stm) |
+                               pos.pieces(TYPE_KNIGHT, ~stm);
+        const Bitboard occ = pos.occ() & (~Bitboard::fromSquare(move.to()));
+        const Bitboard range = attacks::queen(move.to(), occ);
         if (enemy & range) {
-            s -= HANGING_PENALTY;
+            s -= QUEEN_HANGING_PENALTY;
             likelyBlunder = true;
         }
     }
@@ -454,7 +456,7 @@ int16_t MovePicker::score(Move move) {
     }
 
     // Statistical bonus, even more if this move is not an obvious blunder
-    const int divider = likelyBlunder ? 15 : 50;
+    const int divider = likelyBlunder ? 50 : 15;
     const bool queensOnBoard = pos.countPieces(TYPE_QUEEN) == 2;
     if (pos.fullMoveNumber() <= 12 && queensOnBoard) { // opening
         s += (int)(OPENING_MOVE_FREQ[(int)aggressor][move.to().index()] /
@@ -467,7 +469,7 @@ int16_t MovePicker::score(Move move) {
     } else if (pos.fullMoveNumber() <= 40) {
         const int nonPawnPieces = (pos.occ() ^ pos.pieces(TYPE_PAWN)).count();
         if (nonPawnPieces <= 7) {
-            return;
+            return 0; // no specific move ordering in endgame
         }
         s += (int)(MIDGAME_MOVE_FREQ[(int)aggressor][move.to().index()] /
                    divider);
@@ -481,7 +483,7 @@ int16_t MovePicker::score(Move move) {
     return s;
 }
 
-inline Move MovePicker::pick() {
+Move MovePicker::pick() {
     if (q.size() == 0) {
         return Move::NO_MOVE;
     } else {

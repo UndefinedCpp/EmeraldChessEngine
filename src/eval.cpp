@@ -50,11 +50,11 @@ constexpr PieceType PIECE_TYPE_MAPPING[PieceTypeNum] = {
  * Evaluator class, implements various evaluation aspects.
  */
 class Evaluator {
-  public:
+public:
     Evaluator(Position &pos) : pos(pos) {
     }
 
-  private:
+private:
     Position &pos;
 
     struct {
@@ -159,7 +159,7 @@ class Evaluator {
                 const Bitboard outpostMask =
                     OUTPOST_SQUARES[C] & (~cache.attackedBy[_C][Pawn]);
                 if (outpostMask & sqbb) {
-                    bool supported = cache.attackedBy[C][Pawn] & sqbb;
+                    bool supported = (bool)(cache.attackedBy[C][Pawn] & sqbb);
                     total += OUTPOST_BONUS[PT == Bishop][supported];
                 }
 
@@ -286,7 +286,7 @@ class Evaluator {
                (MIDGAME_LIMIT - ENDGAME_LIMIT);
     }
 
-  public:
+public:
     Value operator()() {
         // First, check material and cache the results
         _countMaterial<White>();

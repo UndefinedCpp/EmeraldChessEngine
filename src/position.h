@@ -99,6 +99,9 @@ public:
         const Bitboard pawns = pieces(TYPE_PAWN, color);
         return (occupied & ~pawns) != 0;
     }
+    bool hasNonPawnMaterial() const {
+        return hasNonPawnMaterial(WHITE) && hasNonPawnMaterial(BLACK);
+    }
 
 public:
     /**

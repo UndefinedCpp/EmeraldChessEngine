@@ -27,9 +27,37 @@ struct Scratchpad {
 };
 
 struct SearchStatistics {
-    uint32_t nodes;
-    uint16_t depth;
-    uint16_t seldepth;
+    uint32_t nodes = 0;
+    uint16_t depth = 1;
+    uint16_t seldepth = 1;
+};
+
+struct SearchResult {
+    Value score = VALUE_NONE;
+    int16_t depth = -1;
+    int16_t seldepth = -1;
+    uint32_t nodes = 0;
+    uint16_t time = 0;
+    uint16_t bestmove = 0;
+
+    static SearchResult from(const SearchStatistics &stats,
+                             const TimeControl &tc, Value bestValue,
+                             Move bestMove) {
+        SearchResult item;
+        item.depth = stats.depth;
+        item.seldepth = stats.seldepth;
+        item.nodes = stats.nodes;
+        item.score = bestValue;
+        item.bestmove = bestMove.move();
+        item.time = tc._elapsed();
+    }
+
+    void print() const {
+        std::cout << "info depth " << depth << " score " << score << " nodes "
+                  << nodes << " seldepth " << seldepth << " time " << time
+                  << " pv " << chess::uci::moveToUci(Move(bestmove))
+                  << std::endl;
+    }
 };
 
 /**
@@ -52,6 +80,76 @@ private:
     bool searchAborted = false;
 
 public:
+    Searcher(const Position &pos) : pos(pos) {
+    }
+
+    void search(SearchResult &result, TimeControl timeControl) {
+        // Reset all local variables
+        bestMoveCurr = Move::NO_MOVE;
+        bestEvalCurr = VALUE_NONE;
+        history.clear();
+        stats = SearchStatistics();
+        for (size_t i = 0; i < MAX_PLY; ++i) {
+            stack[i] = Scratchpad();
+        }
+
+        this->tc = timeControl;
+
+        MovePicker mp(pos);
+
+        // Handle no legal move
+        if (mp.size() == 0) {
+            result = SearchResult::from(stats, tc, DRAW_VALUE, Move::NO_MOVE);
+            std::cerr << "info string no legal moves" << std::endl;
+            return;
+        }
+        // We don't have to waste time searching if there is only one reply in
+        // competition
+        if (tc.competitionMode && mp.size() == 1) {
+            Value staticEval = evaluate(pos);
+            result = SearchResult::from(stats, tc, staticEval, mp.pick());
+            return;
+        }
+
+        Value alpha = Value::matedIn(0);
+        Value beta = Value::mateIn(0);
+        Value bestEvalRoot = Value::none();
+        Move bestMoveRoot = Move::NO_MOVE;
+
+        while (!hasReachedSoftLimit() && stats.depth < MAX_PLY) {
+            // Reset variable for this iteration
+            bestMoveCurr = Move::NO_MOVE;
+            bestEvalCurr = VALUE_NONE;
+            const Value score =
+                negamax<PVNode>(alpha, beta, stats.depth, 0, false);
+
+            if (bestMoveCurr.isValid()) {
+                // Update evaluation stability statistics
+                history.updateStability(bestEvalRoot, bestEvalCurr);
+                bestMoveRoot = bestMoveCurr;
+                bestEvalRoot = bestEvalCurr;
+                // Output the information about this iteration
+                SearchResult::from(stats, tc, bestEvalCurr, bestMoveRoot.move())
+                    .print();
+            }
+
+            if (hasReachedHardLimit()) {
+                break;
+            }
+            if (tc.competitionMode && score.isMate()) {
+                break;
+            }
+
+            stats.depth++;
+        }
+
+        // If we failed to find even one move, return the first legal move
+        if (!bestMoveRoot.isValid()) {
+            bestMoveRoot = mp.pick();
+        }
+        result = SearchResult::from(stats, tc, bestEvalRoot, bestMoveRoot);
+    }
+
     /**
      * Negamax search.
      *
@@ -101,12 +199,12 @@ public:
         const bool ttHit = ttEntry != nullptr;
         const Move ttMove = ttHit ? Move::NO_MOVE : Move(ttEntry->move_code);
 
-        const bool eligibleTTPrune = 
+        const bool eligibleTTPrune =
             !isRootNode && ttHit &&
             // Ensure sufficient depth, and even higher for PV nodes
             (ttEntry->depth >= (depth + (isPVNode ? 2 : 0))) &&
             (ttEntry->value <= alpha || cutnode) &&
-            isInEntryBound(ttEntry, alpha, beta));
+            isInEntryBound(ttEntry, alpha, beta);
         if (eligibleTTPrune) {
             if (!isPVNode) { // at non-PV nodes, safely prune the node
                 return ttEntry->value;
@@ -159,7 +257,7 @@ public:
                 pos.unmakeNullMove();
 
                 stack[ply + 1].nullMoveAllowed = true; // reset
-                if (score >= beta) {
+                if (nullMoveValue >= beta) {
                     // TODO perform verification search at high depth
                     // Do not return unproven mates
                     return nullMoveValue.isMate() ? beta : nullMoveValue;
@@ -173,8 +271,8 @@ public:
         EntryType ttEntryType = EntryType::UPPER_BOUND;
         int movesSearched = 0;
 
-        MovePicker mp;
-        mp.init(&history.killerTable, &history.historyTable);
+        MovePicker mp(pos);
+        mp.init(&history.killerTable[ply], &history.historyTable);
 
         while (true) {
             Move m = mp.pick();
@@ -217,7 +315,7 @@ public:
                 alpha = score;
                 ttEntryType = EntryType::EXACT;
 
-                if (ply == 0) {
+                if (ply == 0) { // Root node
                     bestEvalCurr = score;
                     bestMoveCurr = bestMove;
                 }
@@ -348,7 +446,7 @@ private:
                pos.isInsufficientMaterial();
     }
 
-    bool isInEntryBound(TTEntry *entry, Value alpha, Value beta) {
+    bool isInEntryBound(const TTEntry *entry, Value alpha, Value beta) {
         assert(entry != nullptr);
         return entry->type == EntryType::EXACT ||
                (entry->type == EntryType::UPPER_BOUND &&
@@ -377,5 +475,13 @@ private:
  * The entry point of the search.
  */
 void think(Position &pos, SearchParams &params) {
-    return;
+    SearchResult result;
+    Searcher searcher(pos);
+
+    const Color stm = pos.sideToMove();
+    const TimePoint tp = TimeControl::now();
+    searcher.search(result, TimeControl(stm, params, tp));
+
+    std::cout << "bestmove " << chess::uci::moveToUci(Move(result.bestmove))
+              << std::endl;
 }
