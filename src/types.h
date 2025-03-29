@@ -14,6 +14,7 @@
 #define MOVE_GEN_ALL chess::movegen::MoveGenType::ALL
 #define MOVE_GEN_CAPTURE chess::movegen::MoveGenType::CAPTURE
 
+using chess::attacks;
 using chess::Bitboard;
 using chess::Board;
 using chess::Color;
@@ -24,42 +25,24 @@ using chess::Piece;
 using chess::PieceType;
 using chess::Square;
 
-/**
- * Implements data structure for killer move heuristics. We keep
- * track of the last two killer moves for each ply.
- */
-struct KillerHeuristics {
-    uint16_t killer1;
-    uint16_t killer2;
-
-    KillerHeuristics() : killer1(0), killer2(0) {
-    }
-    void add(Move move) {
-        if (move.move() != killer1) {
-            killer2 = killer1;
-            killer1 = move.move();
-        }
-    }
-    bool has(Move move) {
-        return move.move() == killer1 || move.move() == killer2;
-    }
-};
-
 #define MATE_VALUE_THRESHOLD 32000
 
 class Value {
-  private:
+private:
     short m_value;
 
-  public:
+public:
     constexpr Value() : m_value(0) {
     }
     constexpr Value(int value) : m_value((short)value) {
     }
 
-    bool isMate() const {
-        return m_value >= MATE_VALUE_THRESHOLD ||
-               m_value <= -MATE_VALUE_THRESHOLD;
+    inline bool isValid() const {
+        return m_value != -32768;
+    }
+    inline bool isMate() const {
+        return isValid() && (m_value >= MATE_VALUE_THRESHOLD ||
+                             m_value <= -MATE_VALUE_THRESHOLD);
     }
 
     constexpr static Value mateIn(int ply) {
@@ -68,6 +51,9 @@ class Value {
 
     constexpr static Value matedIn(int ply) {
         return Value(-32767 + ply);
+    }
+    constexpr static Value none() {
+        return Value(-32768);
     }
 
     int value() const {
@@ -78,20 +64,6 @@ class Value {
             return (32767 /* short limit */ - m_value + 1) / 2;
         } else {
             return (-32767 - m_value - 1) / 2;
-        }
-    }
-
-    /**
-     * Adjust the mate-related evaluation values based on the
-     * number of plies.
-     */
-    inline Value addPly(int ply = 1) const {
-        if (m_value > MATE_VALUE_THRESHOLD) {
-            return Value(m_value - ply);
-        } else if (m_value < -MATE_VALUE_THRESHOLD) {
-            return Value(m_value + ply);
-        } else {
-            return Value(m_value);
         }
     }
 
@@ -157,7 +129,7 @@ class Value {
 #define ALL_GAME_PHASES 32
 
 class Score {
-  public:
+public:
     Value mg;
     Value eg;
 
@@ -208,6 +180,7 @@ class Score {
 
 constexpr Value MATE_VALUE = Value::mateIn(0);
 constexpr Value MATED_VALUE = Value::matedIn(0);
+constexpr Value VALUE_NONE = Value::none();
 constexpr Value DRAW_VALUE = Value(0);
 
 using TimePoint = std::chrono::time_point<std::chrono::steady_clock>;

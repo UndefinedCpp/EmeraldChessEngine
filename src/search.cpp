@@ -1,259 +1,381 @@
 #include "search.h"
 #include "eval.h"
 #include "evalconstants.h"
-#include "moveorder.h"
-#include "timemgr.h"
+#include "history.h"
+#include "movepick.h"
+#include "timecontrol.h"
 #include "tt.h"
 
 #include <chrono>
 #include <iomanip>
 #include <iostream>
 
-constexpr int QSEARCH_DEPTH = 8; // can be tuned
+namespace {
 
-template <NodeType NT>
-Value Searcher::negamax(Scratchpad *sp, Value alpha, Value beta, int depth,
-                        bool cutnode) {
-    // Get basic information about the current node
-    constexpr bool isPVNode = NT == PVNode;
-    const bool isRootNode = PVNode && ((sp - 1)->ply == 0);
+constexpr int MAX_QSEARCH_DEPTH = 8;
 
-    assert(MATED_VALUE <= alpha && alpha <= MATE_VALUE);
-    assert(MATED_VALUE <= beta && beta <= MATE_VALUE);
-    assert(isPVNode || (alpha == beta - 1));
-    assert(!(isPVNode || cutnode));
+enum NodeType {
+    PVNode,
+    NonPVNode,
+};
 
-    uint16_t pv[MAX_PLY + 1];
-    Value eval = DRAW_VALUE;
-    Move bestMove = Move::NO_MOVE;
+struct Scratchpad {
+    Value staticEval = Value::none();
+    uint16_t currentMove = 0;
+    uint16_t bestMove = 0;
+    bool nullMoveAllowed = true;
+};
 
+struct SearchStatistics {
+    uint32_t nodes;
+    uint16_t depth;
+    uint16_t seldepth;
+};
+
+/**
+ * This class holds the context and algorithm needed to perform a search.
+ * Specifically, it implements the negamax algorithm within the iterative
+ * deepening (ID) and principle variation search (PVS) frameworks.
+ */
+class Searcher {
+private:
+    Move bestMoveCurr;
+    Value bestEvalCurr;
+
+    SearchHistory history;
+    Scratchpad stack[MAX_PLY];
+    SearchStatistics stats;
+
+    Position pos;
+    TimeControl tc;
+
+    bool searchAborted = false;
+
+public:
     /**
-     * (1) Initialize the search, and return early on special cases
+     * Negamax search.
+     *
+     * @param alpha   The score guaranteed so far. (lower bound)
+     * @param beta    The score we can get at most. (upper bound)
+     * @param depth   Plys left to search.
+     * @param ply     Plys searched.
+     * @param cutnode Whether this node is an expected cutnode. (fail-high node)
      */
-    const bool isInCheck = pos.inCheck();
-    Value bestValue = MATED_VALUE;
-    sp->ply = (sp - 1)->ply + 1;
+    template <NodeType NT>
+    Value negamax(Value alpha, Value beta, int depth, int ply, bool cutnode) {
+        constexpr bool isPVNode = NT == PVNode;
+        const bool isRootNode = ply == 0;
+        const bool inCheck = pos.inCheck();
 
-    if (searchCallCount > 1000) {
-        searchCallCount = 0; // reset counter
-        if (checkTime()) {   // abort immediately if time is up
-            searchAborted = true;
-            return 0;
+        // If running out of time, return immediately
+        if (hasReachedHardLimit()) {
+            return alpha;
         }
-    }
-
-    diagnosis.nodes++; // increase node counter
-    if (isPVNode && (sp->ply > diagnosis.seldepth)) {
-        diagnosis.seldepth = sp->ply; // update seldepth
-    }
-
-    if (!isRootNode) {
-        if (pos.isHalfMoveDraw()) {
-            auto [_, drawType] = pos.getHalfMoveDrawType();
-            if (drawType == chess::GameResult::DRAW) {
-                return DRAW_VALUE;
-            } else {
-                return Value::matedIn(sp->ply);
-            }
+        // Go into quiescence search if no more plys are left to search
+        if (depth <= 0 && !inCheck) {
+            return qsearch<NT>(alpha, beta, depth, ply);
         }
-        if (pos.isRepetition()) {
+        // Draw detection
+        if (ply > 0 && isDraw()) {
             return DRAW_VALUE;
         }
 
         /**
-         * (2) Mate Distance Pruning.
-         *
-         * If a forced mate has been found, cut trees and adjust bounds of lines
-         * where no shorter mate is possible. This normally doesn't help improve
-         * playing strength, but it still helps to find faster mate proofs.
+         * Mate Distance Pruning.
          */
-        alpha = std::max(alpha, Value::matedIn(sp->ply));
-        beta = std::min(beta, Value::mateIn(sp->ply));
+        alpha = std::max(alpha, Value::matedIn(ply));
+        beta = std::min(beta, Value::mateIn(ply - 1));
         if (alpha >= beta) {
             return alpha;
         }
-    }
 
-    /**
-     * (3) Transposition Table lookup.
-     */
-    TTEntry *ttEntry = tt.probe(pos);
-    const ttHit = ttEntry != nullptr;
-    Value ttValue = DRAW_VALUE;
-    if (ttHit) {
-        ttValue =
-            ttEntry->value >= MATE_VALUE_THRESHOLD    ? Value::mateIn(sp->ply)
-            : ttEntry->value <= -MATE_VALUE_THRESHOLD ? Value::matedIn(sp->ply)
-                                                      : ttEntry->value;
-    }
-    Move ttMove = ttHit ? ttEntry->move() : Move::NO_MOVE;
+        history.killerTable[ply + 1].clear();
 
-    if (!isPVNode                   // at non-PV nodes
-        && ttHit                    // entry found
-        && ttEntry->depth > sp->ply // deeper so more accurate
-        && (ttValue >= beta ? (ttEntry->type == EntryType::UPPER_BOUND)
-                            : (ttEntry->type == EntryType::LOWER_BOUND))) {
-        return ttValue; // TT cutoff
-    }
-    if (isPVNode                                      // at PV nodes
-        && ttHit && ttEntry->type == EntryType::EXACT // exact bound only
-        && ttEntry->depth >= sp->ply                  // deeper analysis
-    ) {
-        return ttValue; // Exact position has been evaluated before
-    }
+        /**
+         * Transposition Table Probing.
+         *
+         * If a position is reached before and its evaluation is stored in the
+         * table, we can potentially reuse the result from previous searches.
+         */
+        const TTEntry *ttEntry = tt.probe(pos);
+        const bool ttHit = ttEntry != nullptr;
+        const Move ttMove = ttHit ? Move::NO_MOVE : Move(ttEntry->move_code);
 
-    /**
-     * (4) Static evaluation when not in check.
-     */
-    if (isInCheck) {
-        goto loop;
-    } else {
-        sp->staticValue = eval = evaluate(pos);
-    }
-
-    if (sp->skipPruning)
-        goto loop;
-
-    /**
-     * (5) Futility pruning.
-     */
-    if (!isRootNode                   // at child node
-        && depth < 7                  // near frontier nodes
-        && eval >= beta + depth * 100 // large margin
-        && !isInCheck && pos.hasNonPawnMaterial()) {
-        return eval;
-    }
-
-    /**
-     * (6) Null move pruning
-     */
-    if (!isPVNode                   // at non-PV nodes
-        && eval >= beta             //
-        && depth >= 5               // ensure enough depth
-        && pos.hasNonPawnMaterial() // prevent zugswang
-    ) {
-        pos.makeNullMove();
-        (sp + 1)->skipPruning = true;
-        Value nullVal =
-            -negamax<NonPVNode>(sp + 1, -beta, -beta + 1, depth - 3, !cutnode);
-        (sp + 1)->skipPruning = false;
-        pos.unmakeNullMove();
-
-        if (nullVal >= beta) {
-            if (nullVal.isMate()) { // Could be unproven mate
-                return beta;
-            } else {
-                return nullVal; // TODO verify value at high depth
+        const bool eligibleTTPrune = 
+            !isRootNode && ttHit &&
+            // Ensure sufficient depth, and even higher for PV nodes
+            (ttEntry->depth >= (depth + (isPVNode ? 2 : 0))) &&
+            (ttEntry->value <= alpha || cutnode) &&
+            isInEntryBound(ttEntry, alpha, beta));
+        if (eligibleTTPrune) {
+            if (!isPVNode) { // at non-PV nodes, safely prune the node
+                return ttEntry->value;
+            } else { // but at PV nodes, just reduce the depth
+                depth--;
             }
         }
+
+        // Static evaluation. This guides pruning and reduction.
+        Value staticEval = VALUE_NONE;
+        if (!inCheck) {
+            staticEval = evaluate(pos);
+        }
+        stack[ply].staticEval = staticEval;
+
+        const bool improving = isImproving(ply, staticEval);
+
+        // Pruning before looping over the moves.
+        if (!isPVNode && !inCheck) {
+            /**
+             * Reverse Futility Pruning.
+             *
+             * If the static evaluation is far above beta, it is likely
+             * to fail high.
+             */
+            const Value futilityMargin = std::max(depth, 0) * 75;
+            if (depth <= 7 && !alpha.isMate() &&
+                staticEval >= beta + futilityMargin) {
+                return beta + (staticEval - beta) / 3;
+            }
+
+            /**
+             * Null Move Pruning.
+             *
+             * In almost all chess positions, making a null move (passing a
+             * turn) is worse than the best legal move.
+             */
+            if (stack[ply].nullMoveAllowed && // last ply wasn't a null move
+                depth >= 3 && staticEval >= beta &&
+                (!ttHit || cutnode || ttEntry->value >= beta) &&
+                pos.hasNonPawnMaterial() // zugzwang can break things
+            ) {
+                stack[ply + 1].nullMoveAllowed =
+                    false; // disable NMP on next ply
+                const int reduction = 2 + depth / 3;
+
+                pos.makeNullMove();
+                Value nullMoveValue = -negamax<NonPVNode>(
+                    -beta, -beta + 1, depth - reduction, ply + 1, !cutnode);
+                pos.unmakeNullMove();
+
+                stack[ply + 1].nullMoveAllowed = true; // reset
+                if (score >= beta) {
+                    // TODO perform verification search at high depth
+                    // Do not return unproven mates
+                    return nullMoveValue.isMate() ? beta : nullMoveValue;
+                }
+            }
+        }
+
+        // Now we have decided to search this node.
+        Move bestMove = Move::NO_MOVE;
+        Value bestValue = VALUE_NONE;
+        EntryType ttEntryType = EntryType::UPPER_BOUND;
+        int movesSearched = 0;
+
+        MovePicker mp;
+        mp.init(&history.killerTable, &history.historyTable);
+
+        while (true) {
+            Move m = mp.pick();
+            if (!m.isValid()) {
+                break; // no more moves
+            }
+
+            // TODO pruning and reduction goes here
+
+            pos.makeMove(m);
+            Value score = VALUE_NONE;
+
+            // Principal Variation Search
+            if (movesSearched == 0) {
+                score = -negamax<NT>(-beta, -alpha, depth - 1, ply + 1,
+                                     !isPVNode && !cutnode);
+            } else {
+                // Perform null window search
+                score = -negamax<NonPVNode>(-alpha - 1, -alpha, depth - 1,
+                                            ply + 1, !cutnode);
+                if (score > alpha && score < beta) {
+                    // re-search with full window
+                    score = -negamax<PVNode>(-beta, -alpha, depth - 1, ply + 1,
+                                             false);
+                }
+            }
+
+            pos.unmakeMove(m);
+
+            if (hasReachedHardLimit()) {
+                return alpha;
+            }
+
+            if (score > bestValue) {
+                bestValue = score;
+            }
+
+            if (score > alpha) {
+                bestMove = m;
+                alpha = score;
+                ttEntryType = EntryType::EXACT;
+
+                if (ply == 0) {
+                    bestEvalCurr = score;
+                    bestMoveCurr = bestMove;
+                }
+
+                if (score >= beta) {
+                    ttEntryType = EntryType::LOWER_BOUND;
+                    break; // cutoff
+                }
+            }
+
+            movesSearched++;
+        }
+
+        if (movesSearched == 0 && inCheck) {
+            return Value::matedIn(ply);
+        }
+
+        tt.store(pos, ttEntryType, depth, bestMove, bestValue);
+        return bestValue;
     }
 
-loop: // This label marks the beginning of the search loop
     /**
-     * (7) Loop through all the moves
+     * Quiescence search.
+     *
+     * The purpose of this search is to only evaluate "quiet" positions, or
+     * positions where there are no winning tactical moves to be made. This
+     * search is needed to avoid the horizon effect.
+     *
+     * See https://www.chessprogramming.org/Quiescence_Search.
      */
-    MoveOrderer<OrderMode::DEFAULT> orderer;
-    orderer.init(pos, sp->killers, ttMove);
+    template <NodeType NT>
+    Value qsearch(Value alpha, Value beta, int depth, int ply) {
+        constexpr bool isPVNode = NT == PVNode;
+        // If running out of time, return immediately
+        if (hasReachedHardLimit()) {
+            return alpha;
+        }
+        // Draw detection
+        if (isDraw()) {
+            return DRAW_VALUE;
+        }
+        // Return if we are going too deep
+        if (depth <= 0 || ply >= MAX_PLY) {
+            return pos.inCheck() ? DRAW_VALUE : evaluate(pos);
+        }
+        // Update selective depth
+        if (isPVNode && ply > stats.seldepth) {
+            stats.seldepth = ply;
+        }
+        // At non-PV nodes we perform early TT cutoff
+        if (!isPVNode) {
+            TTEntry *entry = tt.probe(pos);
+            if (entry && isInEntryBound(entry, alpha, beta)) {
+                return entry->value;
+            }
+        }
 
-    int moveCount = 0;
-    Move m;
+        const bool inCheck = pos.inCheck();
 
-    while ((m = orderer.get()) != Move::NO_MOVE) {
-        moveCount++;
-    }
-
-    // Check for checkmate or stalemate
-    if (moveCount == 0) {
-        bestValue = isInCheck ? Value::matedIn(sp->ply) : DRAW_VALUE;
-    }
-
-    tt.store(pos,
-             (bestValue >= beta)              ? EntryType::LOWER_BOUND
-             : (PVNode && bestMove.isValid()) ? EntryType::EXACT
-                                              : EntryType::UPPER_BOUND,
-             depth, bestMove, bestValue);
-    return bestValue;
-}
-
-std::pair<Move, Value> Searcher::search() {
-    // Iterative deepening
-    std::pair<Move, Value> result;
-    TimeManager tm;
-    maxThinkingTime = 0;
-
-    if (params.wtime > 0 || params.btime > 0) {
-        if (pos.sideToMove() == WHITE) {
-            tm.update(params.wtime, params.winc);
+        MovePicker mp(pos);
+        if (inCheck) {
+            mp.init(nullptr, &history.historyTable); // Always evade checks
         } else {
-            tm.update(params.btime, params.binc);
+            mp.initQuiet(&history.historyTable);
         }
-        maxThinkingTime = tm.spareTime(pos.fullMoveNumber());
-    } else {
-        maxThinkingTime = 5000;
+
+        int movesSearched = 0;
+        Value bestValue = MATED_VALUE;
+        while (true) {
+            Move m = mp.pick();
+            if (!m.isValid()) {
+                break;
+            }
+
+            // TODO add pruning!
+
+            pos.makeMove(m);
+            const Value v = -qsearch<NT>(-beta, -alpha, depth - 1, ply + 1);
+            pos.unmakeMove(m);
+
+            if (v > bestValue) {
+                bestValue = v;
+            }
+            if (v > alpha) {
+                alpha = v;
+                if (v >= beta) {
+                    break;
+                }
+            }
+
+            movesSearched++;
+        }
+
+        if (movesSearched == 0 && inCheck) {
+            return Value::matedIn(ply);
+        }
+
+        return bestValue;
     }
 
-    const auto timeBegin = std::chrono::steady_clock::now();
-    startTime = timeBegin;
+    void abortSearch() {
+        searchAborted = true;
+    }
 
-    for (int depth = 1; depth <= 32; ++depth) {
-        const auto timeEnd = std::chrono::steady_clock::now();
-        const uint32_t timeElapsed =
-            std::chrono::duration_cast<std::chrono::milliseconds>(timeEnd -
-                                                                  timeBegin)
-                .count();
-        if (timeElapsed > maxThinkingTime) {
-            break;
-        }
-
-        result = negamax_root(depth, MATE_VALUE, MATED_VALUE);
+private:
+    bool hasReachedHardLimit() {
         if (searchAborted) {
-            break;
+            return true;
         }
-
-        // Print uci output
-        if (timeElapsed >= 1) {
-            uint64_t nps = diagnosis.nodes * 1000 / timeElapsed;
-            std::cout << "info depth " << depth << " score " << result.second
-                      << " seldepth " << (int)diagnosis.seldepth << " hashfull "
-                      << tt.hashfull() << " time " << timeElapsed << " nodes "
-                      << (int)diagnosis.nodes << " nps " << nps << " pv "
-                      << chess::uci::moveToUci(pvMoveFromIteration)
-                      << std::endl;
-        } else {
-            std::cout << "info depth " << depth << " score " << result.second
-                      << " seldepth " << (int)diagnosis.seldepth << " hashfull "
-                      << tt.hashfull() << " time " << timeElapsed << " nodes "
-                      << (int)diagnosis.nodes << std::endl;
-        }
-
-        pvMoveFromIteration = result.first;
-        pvScoreFromIteration = result.second;
+        return tc.hitHardLimit(stats.depth, stats.nodes);
     }
-    std::cout << std::flush;
-    return {pvMoveFromIteration, pvScoreFromIteration};
-}
 
-bool Searcher::checkTime() {
-    const auto timeNow = std::chrono::steady_clock::now();
-    const uint32_t timeElapsed =
-        std::chrono::duration_cast<std::chrono::milliseconds>(timeNow -
-                                                              startTime)
-            .count();
+    bool hasReachedSoftLimit() {
+        if (searchAborted) {
+            return true;
+        }
+        return tc.hitSoftLimit(stats.depth, stats.nodes, history.evalStability);
+    }
 
-    return timeElapsed > maxThinkingTime;
-}
+    /**
+     * Test if the current position is a draw by repetition, insufficient
+     * material or fifty moves rule. This does not check for stalemate or
+     * checkmate, even though in edge cases one's 50th move could be a
+     * checkmate.
+     */
+    bool isDraw() {
+        return pos.isHalfMoveDraw() || pos.isRepetition() ||
+               pos.isInsufficientMaterial();
+    }
+
+    bool isInEntryBound(TTEntry *entry, Value alpha, Value beta) {
+        assert(entry != nullptr);
+        return entry->type == EntryType::EXACT ||
+               (entry->type == EntryType::UPPER_BOUND &&
+                entry->value <= alpha) ||
+               (entry->type == EntryType::LOWER_BOUND && entry->value >= beta);
+    }
+
+    /**
+     * Determine the improving heuristic.
+     */
+    bool isImproving(int ply, Value eval) {
+        if (!eval.isValid()) { // currently in check
+            return false;
+        }
+        if (ply < 2) {
+            return false; // no history to compare to
+        }
+        const Value eval2 = stack[ply - 2].staticEval;
+        return eval2 < eval;
+    }
+};
+
+}; // namespace
 
 /**
- * The entry point for the search.
+ * The entry point of the search.
  */
 void think(Position &pos, SearchParams &params) {
-    // TODO test code here
-
-    Searcher searcher(pos, params);
-    const auto [bestMove, bestScore] = searcher.search();
-    tt.incGeneration();
-    const SearchDiagnosis &info = searcher.diagnosis;
-
-    auto uci = chess::uci::moveToUci(bestMove);
-    std::cout << "bestmove " << uci << std::endl;
+    return;
 }

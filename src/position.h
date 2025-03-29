@@ -9,7 +9,7 @@
  * Simple extension to Board with extra helper functions.
  */
 class Position : public Board {
-  public:
+public:
     using Board::Board; // Inherit the constructor
 
     /**
@@ -28,7 +28,7 @@ class Position : public Board {
     const Movelist legalMoves() {
         Movelist moves;
         movegen::legalmoves(moves, *this);
-        return moves;
+        return moves; // Let RVO take care of this, no need for std::move
     }
 
     const Movelist generateCaptureMoves() {
@@ -100,7 +100,7 @@ class Position : public Board {
         return (occupied & ~pawns) != 0;
     }
 
-  public:
+public:
     /**
      * Yet another way to quick access the board
      */
