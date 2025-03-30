@@ -10,7 +10,8 @@ void TranspositionTable::store(const Position &pos, EntryType type,
 
     if (value == MATE_VALUE || value == MATED_VALUE) {
         std::cerr << "Error at <" << pos.getFen() << ">: " << (int)type << ", "
-                  << (int)depth << ", " << move << ", " << value << std::endl;
+                  << (int)depth << ", " << move << ", " << value << " ("
+                  << (int)value << ")" << std::endl;
         assert(false);
     }
 

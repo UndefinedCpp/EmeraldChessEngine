@@ -10,11 +10,14 @@ std::pair<bool, Value> checkGameStatus(Position &board);
 
 // Override `operator<<` for fast printing of Values and Scores
 inline std::ostream &operator<<(std::ostream &os, const Value &s) {
-    assert(s > MATED_VALUE && s < MATE_VALUE);
-    if (s.isMate()) {
-        os << "mate " << s.mate();
+    if (!s.isValid()) {
+        os << "(invalid score)";
     } else {
-        os << "cp " << s.value();
+        if (s.isMate()) {
+            os << "mate " << s.mate();
+        } else {
+            os << "cp " << s.value();
+        }
     }
     return os;
 }

@@ -18,7 +18,7 @@ using TimePoint = std::chrono::time_point<std::chrono::steady_clock>;
 struct TimeControl {
     uint32_t softTimeWall = 0;
     uint32_t hardTimeWall = 0;
-    uint32_t maxDepth = 256;
+    uint32_t maxDepth = 0;
     uint32_t softNodesWall = 0;
     TimePoint startTime;
     bool competitionMode = false;

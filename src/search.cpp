@@ -10,6 +10,18 @@
 #include <iomanip>
 #include <iostream>
 
+// #define DEBUG_ENABLED
+
+#ifdef DEBUG_ENABLED
+#define DEBUG(...)                                                             \
+    do {                                                                       \
+        std::cerr << __FILE__ << ":" << __LINE__ << " - " << __VA_ARGS__       \
+                  << "\n";                                                     \
+    } while (0);
+#else
+#define DEBUG(...)
+#endif
+
 namespace {
 
 constexpr int MAX_QSEARCH_DEPTH = 8;
@@ -50,9 +62,11 @@ struct SearchResult {
         item.score = bestValue;
         item.bestmove = bestMove.move();
         item.time = tc._elapsed();
+        return item;
     }
 
     void print() const {
+        DEBUG("1.5");
         std::cout << "info depth " << depth << " score " << score << " nodes "
                   << nodes << " seldepth " << seldepth << " time " << time
                   << " pv " << chess::uci::moveToUci(Move(bestmove))
@@ -122,17 +136,20 @@ public:
             bestEvalCurr = VALUE_NONE;
             const Value score =
                 negamax<PVNode>(alpha, beta, stats.depth, 0, false);
-
+            DEBUG("search finished");
+            assert(bestEvalCurr == score);
             if (bestMoveCurr.isValid()) {
+                DEBUG("0");
                 // Update evaluation stability statistics
                 history.updateStability(bestEvalRoot, bestEvalCurr);
                 bestMoveRoot = bestMoveCurr;
                 bestEvalRoot = bestEvalCurr;
+                DEBUG("1");
                 // Output the information about this iteration
                 SearchResult::from(stats, tc, bestEvalCurr, bestMoveRoot.move())
                     .print();
+                DEBUG("2");
             }
-
             if (hasReachedHardLimit()) {
                 break;
             }
@@ -165,24 +182,28 @@ public:
         const bool isRootNode = ply == 0;
         const bool inCheck = pos.inCheck();
 
+        DEBUG("negamax(alpha=" << (int)alpha << ", beta=" << (int)beta
+                               << ", depth=" << depth << ", ply=" << ply
+                               << ", cutnode=" << cutnode << ")");
+        stats.nodes++;
+
         // If running out of time, return immediately
         if (hasReachedHardLimit()) {
             return alpha;
         }
         // Go into quiescence search if no more plys are left to search
-        if (depth <= 0 && !inCheck) {
-            return qsearch<NT>(alpha, beta, depth, ply);
+        if (depth <= 0) {
+            return qsearch<NT>(alpha, beta, 8, ply);
         }
         // Draw detection
         if (ply > 0 && isDraw()) {
             return DRAW_VALUE;
         }
-
         /**
          * Mate Distance Pruning.
          */
         alpha = std::max(alpha, Value::matedIn(ply));
-        beta = std::min(beta, Value::mateIn(ply - 1));
+        beta = std::min(beta, Value::mateIn(ply));
         if (alpha >= beta) {
             return alpha;
         }
@@ -220,6 +241,8 @@ public:
         }
         stack[ply].staticEval = staticEval;
 
+        DEBUG("static eval finished, eval=" << staticEval);
+
         const bool improving = isImproving(ply, staticEval);
 
         // Pruning before looping over the moves.
@@ -233,6 +256,7 @@ public:
             const Value futilityMargin = std::max(depth, 0) * 75;
             if (depth <= 7 && !alpha.isMate() &&
                 staticEval >= beta + futilityMargin) {
+                DEBUG("reverse futility pruned");
                 return beta + (staticEval - beta) / 3;
             }
 
@@ -280,13 +304,16 @@ public:
                 break; // no more moves
             }
 
+            movesSearched++;
+            DEBUG("  pick move " << m);
+
             // TODO pruning and reduction goes here
 
             pos.makeMove(m);
             Value score = VALUE_NONE;
 
             // Principal Variation Search
-            if (movesSearched == 0) {
+            if (movesSearched == 1) {
                 score = -negamax<NT>(-beta, -alpha, depth - 1, ply + 1,
                                      !isPVNode && !cutnode);
             } else {
@@ -307,6 +334,8 @@ public:
             }
 
             if (score > bestValue) {
+                DEBUG("score " << score << " replaced " << bestValue
+                               << " for move " << m);
                 bestValue = score;
             }
 
@@ -316,7 +345,7 @@ public:
                 ttEntryType = EntryType::EXACT;
 
                 if (ply == 0) { // Root node
-                    bestEvalCurr = score;
+                    bestEvalCurr = bestValue;
                     bestMoveCurr = bestMove;
                 }
 
@@ -325,9 +354,9 @@ public:
                     break; // cutoff
                 }
             }
-
-            movesSearched++;
         }
+
+        DEBUG("<< move loop finished");
 
         if (movesSearched == 0 && inCheck) {
             return Value::matedIn(ply);
@@ -349,6 +378,9 @@ public:
     template <NodeType NT>
     Value qsearch(Value alpha, Value beta, int depth, int ply) {
         constexpr bool isPVNode = NT == PVNode;
+        DEBUG("qsearch(alpha=" << (int)alpha << ", beta=" << (int)beta
+                               << ", depth=" << depth << ", ply=" << ply
+                               << ")");
         // If running out of time, return immediately
         if (hasReachedHardLimit()) {
             return alpha;
@@ -383,12 +415,26 @@ public:
         }
 
         int movesSearched = 0;
-        Value bestValue = MATED_VALUE;
+
+        Value staticEval = VALUE_NONE;
+        if (!inCheck) {
+            staticEval = evaluate(pos);
+            if (staticEval >= beta) {
+                return staticEval;
+            }
+            if (staticEval > alpha) {
+                alpha = staticEval;
+            }
+        }
+
+        Value bestValue = alpha;
+
         while (true) {
             Move m = mp.pick();
             if (!m.isValid()) {
                 break;
             }
+            movesSearched++;
 
             // TODO add pruning!
 
@@ -397,6 +443,8 @@ public:
             pos.unmakeMove(m);
 
             if (v > bestValue) {
+                DEBUG("in qsearch, move " << m << ": " << v << " replaced "
+                                          << bestValue);
                 bestValue = v;
             }
             if (v > alpha) {
@@ -405,14 +453,12 @@ public:
                     break;
                 }
             }
-
-            movesSearched++;
         }
 
         if (movesSearched == 0 && inCheck) {
             return Value::matedIn(ply);
         }
-
+        DEBUG("qsearch quit with " << bestValue);
         return bestValue;
     }
 
@@ -480,7 +526,10 @@ void think(Position &pos, SearchParams &params) {
 
     const Color stm = pos.sideToMove();
     const TimePoint tp = TimeControl::now();
-    searcher.search(result, TimeControl(stm, params, tp));
+    const TimeControl tc = TimeControl(stm, params, tp);
+    std::cout << "info string tc " << tc.hardTimeWall << " " << tc.softTimeWall
+              << "\n";
+    searcher.search(result, tc);
 
     std::cout << "bestmove " << chess::uci::moveToUci(Move(result.bestmove))
               << std::endl;
