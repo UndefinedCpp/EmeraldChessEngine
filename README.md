@@ -8,9 +8,7 @@ This engine is still **WIP** and will be updated from time to time. Currently I 
 
 ## Compiling
 
-I currently have a small build script that compiles the engine with `g++` (`build.py`). Why, you may ask, don't you use `Makefile`? Because I don't know how to use it yet... (What a shame) I will probably move to `Makefile` in the future.
-
-Nevertheless, I have compiled the binary for Windows and you can find it in the release page.
+Use the Makefile to compile the engine.
 
 ## License
 

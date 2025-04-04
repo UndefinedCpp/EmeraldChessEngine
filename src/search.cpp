@@ -36,6 +36,7 @@ struct Scratchpad {
     Value staticEval = Value::none();
     uint16_t currentMove = 0;
     uint16_t bestMove = 0;
+    uint16_t pvIndex = 0;
     bool nullMoveAllowed = true;
 };
 
@@ -52,10 +53,11 @@ struct SearchResult {
     uint32_t nodes = 0;
     uint16_t time = 0;
     uint16_t bestmove = 0;
+    const uint16_t *pvTable = nullptr;
 
     static SearchResult from(const SearchStatistics &stats,
                              const TimeControl &tc, Value bestValue,
-                             Move bestMove) {
+                             Move bestMove, const uint16_t *pvTable) {
         SearchResult item;
         item.depth = stats.depth;
         item.seldepth = stats.seldepth;
@@ -63,15 +65,15 @@ struct SearchResult {
         item.score = bestValue;
         item.bestmove = bestMove.move();
         item.time = tc._elapsed();
+        item.pvTable = pvTable;
         return item;
     }
 
     void print() const {
-        DEBUG("1.5");
         std::cout << "info depth " << depth << " score " << score << " nodes "
                   << nodes << " seldepth " << seldepth << " time " << time
-                  << " pv " << chess::uci::moveToUci(Move(bestmove))
-                  << std::endl;
+                  << " pv " << Move(bestmove);
+        std::cout << std::endl;
     }
 };
 
@@ -93,6 +95,9 @@ private:
     TimeControl tc;
 
     bool searchAborted = false;
+    bool searchInterrupted = false;
+
+    uint16_t pvTable[(MAX_PLY * MAX_PLY + MAX_PLY) / 2]; // triangular array
 
 public:
     Searcher(const Position &pos) : pos(pos) {
@@ -107,14 +112,17 @@ public:
         for (size_t i = 0; i < MAX_PLY; ++i) {
             stack[i] = Scratchpad();
         }
+        searchInterrupted = false;
 
         this->tc = timeControl;
 
         MovePicker mp(pos);
+        mp.init();
 
         // Handle no legal move
         if (mp.size() == 0) {
-            result = SearchResult::from(stats, tc, DRAW_VALUE, Move::NO_MOVE);
+            result = SearchResult::from(stats, tc, DRAW_VALUE, Move::NO_MOVE,
+                                        pvTable);
             std::cerr << "info string no legal moves" << std::endl;
             return;
         }
@@ -122,7 +130,8 @@ public:
         // competition
         if (tc.competitionMode && mp.size() == 1) {
             Value staticEval = evaluate(pos);
-            result = SearchResult::from(stats, tc, staticEval, mp.pick());
+            result =
+                SearchResult::from(stats, tc, staticEval, mp.pick(), pvTable);
             return;
         }
 
@@ -138,8 +147,8 @@ public:
             const Value score =
                 negamax<PVNode>(alpha, beta, stats.depth, 0, false);
             DEBUG("search finished");
-            assert(bestEvalCurr == score);
-            if (bestMoveCurr.isValid()) {
+
+            if (bestMoveCurr.isValid() && !searchInterrupted) {
                 DEBUG("0");
                 // Update evaluation stability statistics
                 history.updateStability(bestEvalRoot, bestEvalCurr);
@@ -147,7 +156,8 @@ public:
                 bestEvalRoot = bestEvalCurr;
                 DEBUG("1");
                 // Output the information about this iteration
-                SearchResult::from(stats, tc, bestEvalCurr, bestMoveRoot.move())
+                SearchResult::from(stats, tc, bestEvalCurr, bestMoveRoot.move(),
+                                   pvTable)
                     .print();
                 DEBUG("2");
             }
@@ -161,11 +171,13 @@ public:
             stats.depth++;
         }
 
-        // If we failed to find even one move, return the first legal move
         if (!bestMoveRoot.isValid()) {
+            std::cout << "info string no move was found\n";
             bestMoveRoot = mp.pick();
         }
-        result = SearchResult::from(stats, tc, bestEvalRoot, bestMoveRoot);
+
+        result =
+            SearchResult::from(stats, tc, bestEvalRoot, bestMoveRoot, pvTable);
     }
 
     /**
@@ -210,6 +222,10 @@ public:
         }
 
         history.killerTable[ply + 1].clear();
+
+        const uint16_t pvIndex = stack[ply].pvIndex;
+        pvTable[pvIndex] = Move::NO_MOVE;
+        stack[ply + 1].pvIndex = pvIndex + MAX_PLY - ply;
 
         /**
          * Transposition Table Probing.
@@ -331,6 +347,7 @@ public:
             pos.unmakeMove(m);
 
             if (hasReachedHardLimit()) {
+                searchInterrupted = true;
                 return alpha;
             }
 
@@ -345,9 +362,19 @@ public:
                 alpha = score;
                 ttEntryType = EntryType::EXACT;
 
+                if (isPVNode && ply > 0) {
+                    // New PV node, update PV table
+                    pvTable[pvIndex] = m.move();
+                    uint16_t n = MAX_PLY - ply - 1;
+                    uint16_t *target = pvTable + pvIndex + 1;
+                    uint16_t *source = pvTable + stack[ply + 1].pvIndex;
+                    while (n-- && (*target++ = *source++))
+                        ;
+                }
+
                 if (ply == 0) { // Root node
-                    bestEvalCurr = bestValue;
-                    bestMoveCurr = bestMove;
+                    bestEvalCurr = score;
+                    bestMoveCurr = m;
                 }
 
                 if (score >= beta) {
@@ -363,7 +390,9 @@ public:
             return Value::matedIn(ply);
         }
 
-        tt.store(pos, ttEntryType, depth, bestMove, bestValue);
+        if (!eligibleTTPrune) {
+            tt.store(pos, ttEntryType, depth, bestMove, bestValue);
+        }
         return bestValue;
     }
 
@@ -384,6 +413,7 @@ public:
                                << ")");
         // If running out of time, return immediately
         if (hasReachedHardLimit()) {
+            searchInterrupted = true;
             return alpha;
         }
         // Draw detection
@@ -536,6 +566,8 @@ void think(SearchParams params, const Position pos) {
 
     std::cout << "bestmove " << chess::uci::moveToUci(Move(result.bestmove))
               << std::endl;
+    std::cout << std::flush;
+
     delete searcher;
     searcher = nullptr; // release
 }
