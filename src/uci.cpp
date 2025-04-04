@@ -2,6 +2,8 @@
 #include "chess.hpp"
 #include "eval.h"
 #include "search.h"
+#include <queue>
+#include <thread>
 
 namespace uci {
 
@@ -9,6 +11,8 @@ namespace uci {
  * This is the position specified by the "position" command.
  */
 Position board;
+
+std::queue<std::thread> threads;
 
 /**
  * Executes a UCI command line.
@@ -121,13 +125,14 @@ void execute(const std::string &command) {
             }
         }
         // Initiate the search process
-        think(uci::board, params);
+        std::thread threadInstance(think, params, board);
+        threadInstance.detach();
         return;
     }
 
     // <Command> stop
     if (token == "stop") {
-        return;
+        stopThinking();
     }
 
     // <Command> ponderhit

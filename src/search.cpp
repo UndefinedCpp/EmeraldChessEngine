@@ -9,6 +9,7 @@
 #include <chrono>
 #include <iomanip>
 #include <iostream>
+#include <thread>
 
 // #define DEBUG_ENABLED
 
@@ -517,20 +518,30 @@ private:
 
 }; // namespace
 
-/**
- * The entry point of the search.
- */
-void think(Position &pos, SearchParams &params) {
+Searcher *searcher = nullptr;
+
+void think(SearchParams params, const Position pos) {
     SearchResult result;
-    Searcher searcher(pos);
+    while (searcher != nullptr) { // wait until searcher is released
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    searcher = new Searcher(pos);
 
     const Color stm = pos.sideToMove();
     const TimePoint tp = TimeControl::now();
     const TimeControl tc = TimeControl(stm, params, tp);
     std::cout << "info string tc " << tc.hardTimeWall << " " << tc.softTimeWall
               << "\n";
-    searcher.search(result, tc);
+    searcher->search(result, tc);
 
     std::cout << "bestmove " << chess::uci::moveToUci(Move(result.bestmove))
               << std::endl;
+    delete searcher;
+    searcher = nullptr; // release
+}
+
+void stopThinking() {
+    if (searcher != nullptr) {
+        searcher->abortSearch();
+    }
 }

@@ -16,4 +16,5 @@ struct SearchParams {
     uint32_t movetime = 0;
 };
 
-void think(Position &pos, SearchParams &params);
+void think(SearchParams params, const Position pos);
+void stopThinking();

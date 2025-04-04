@@ -172,6 +172,9 @@ namespace {
                8,    3,    3,    0,    1,    6,    3,    2,
         }
     };
+    constexpr uint16_t OPENING_ENTRY_WEIGHT[14] = {
+        412, 235, 201, 198, 67, 62, 420, 240, 187, 16, 69, 60, 156, 169
+    };
 
     constexpr uint16_t MIDGAME_MOVE_FREQ[14][64] = {
         // P
@@ -329,6 +332,9 @@ namespace {
               69,   44,  109,  166,  121,  165,   21,   29,
         },
     };
+    constexpr uint16_t MIDGAME_ENTRY_WEIGHT[14] = {
+        268, 222, 200, 233, 234, 85, 257, 212, 194, 225, 226, 91, 364, 355
+    };
 
     /**
      * MVV-LVA table, indexed by [aggressor][victim]. Prefer simplifying captures
@@ -458,25 +464,22 @@ int16_t MovePicker::score(Move move) {
     // Statistical bonus, even more if this move is not an obvious blunder
     const int divider = likelyBlunder ? 50 : 15;
     const bool queensOnBoard = pos.countPieces(TYPE_QUEEN) == 2;
-    if (pos.fullMoveNumber() <= 12 && queensOnBoard) { // opening
-        s += (int)(OPENING_MOVE_FREQ[(int)aggressor][move.to().index()] /
-                   divider);
+    const auto freqTablebase =
+        (pos.fullMoveNumber() <= 12 && queensOnBoard) ? OPENING_MOVE_FREQ
+        : (pos.fullMoveNumber() <= 40)                ? MIDGAME_MOVE_FREQ
+                                                      : nullptr;
+    const auto weightTablebase =
+        (pos.fullMoveNumber() <= 12 && queensOnBoard) ? OPENING_ENTRY_WEIGHT
+        : (pos.fullMoveNumber() <= 40)                ? MIDGAME_ENTRY_WEIGHT
+                                                      : nullptr;
+    if (freqTablebase && weightTablebase) {
+        int tbscore = freqTablebase[(int)aggressor][move.to().index()];
+        int weight = weightTablebase[(int)aggressor];
+        s += tbscore * weight / divider / 1024;
         if (isCapture) {
-            s += (int)(OPENING_MOVE_FREQ[stm == WHITE ? 12 : 13]
-                                        [move.to().index()] /
-                       divider);
-        }
-    } else if (pos.fullMoveNumber() <= 40) {
-        const int nonPawnPieces = (pos.occ() ^ pos.pieces(TYPE_PAWN)).count();
-        if (nonPawnPieces <= 7) {
-            return 0; // no specific move ordering in endgame
-        }
-        s += (int)(MIDGAME_MOVE_FREQ[(int)aggressor][move.to().index()] /
-                   divider);
-        if (isCapture) {
-            s += (int)(MIDGAME_MOVE_FREQ[stm == WHITE ? 12 : 13]
-                                        [move.to().index()] /
-                       divider);
+            tbscore = freqTablebase[stm == WHITE ? 12 : 13][move.to().index()];
+            weight = weightTablebase[stm == WHITE ? 12 : 13];
+            s += tbscore * weight / divider / 1024;
         }
     }
 
