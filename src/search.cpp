@@ -137,6 +137,7 @@ public:
 
         Value alpha = Value::matedIn(0);
         Value beta = Value::mateIn(0);
+        Value window = 50;
         Value bestEvalRoot = Value::none();
         Move bestMoveRoot = Move::NO_MOVE;
 
@@ -166,6 +167,24 @@ public:
             }
             if (tc.competitionMode && score.isMate()) {
                 break;
+            }
+
+            // Aspiration window
+            if (stats.depth >= 3) {
+                if (score <= alpha) {
+                    beta = (alpha + beta) / 2;
+                    alpha = alpha - window;
+                    window = window * 2;
+                    continue;
+                }
+                if (score >= beta) {
+                    beta += window;
+                    window = window * 2;
+                    continue;
+                }
+                window = 50;
+                alpha = score - window;
+                beta = score + window;
             }
 
             stats.depth++;
