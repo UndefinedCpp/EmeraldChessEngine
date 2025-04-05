@@ -4,7 +4,7 @@
 #include <sstream>
 #include <string>
 
-#define ENGINE_VERSION "0.1.1"
+#define ENGINE_VERSION "0.2.0"
 
 namespace uci {
 
