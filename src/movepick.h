@@ -30,8 +30,8 @@ public:
     using HistTbl = SearchHistory::HistoryTable;
 
     MovePicker(Position &pos);
-    void init(KillerTbl *killerTable = nullptr,
-              HistTbl *historyTable = nullptr);
+    void init(KillerTbl *killerTable = nullptr, HistTbl *historyTable = nullptr,
+              Move hashMove = Move::NO_MOVE);
     void initQuiet(HistTbl *historyTable = nullptr);
     Move pick();
 

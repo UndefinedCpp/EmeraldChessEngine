@@ -1121,6 +1121,8 @@ class attacks {
      */
     [[nodiscard]] static Bitboard attackers(const Board &board, Color color,
                                             Square square) noexcept;
+    [[nodiscard]] static Bitboard attackers(const Board &board, Color color,
+                                            Square square, Bitboard occ) noexcept;
 
     /**
      * @brief [Internal Usage] Initializes the attacks for the bishop and rook.
@@ -3725,8 +3727,13 @@ template <Color::underlying c>
 
 [[nodiscard]] inline Bitboard
 attacks::attackers(const Board &board, Color color, Square square) noexcept {
+    return attacks::attackers(board, color, square, board.occ());
+}
+
+[[nodiscard]] inline Bitboard
+attacks::attackers(const Board &board, Color color, Square square, Bitboard occ) noexcept {
     const auto queens = board.pieces(PieceType::QUEEN, color);
-    const auto occupied = board.occ();
+    const auto occupied = occ;
 
     // using the fact that if we can attack PieceType from square, they can
     // attack us back

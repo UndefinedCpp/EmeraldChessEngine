@@ -25,7 +25,7 @@
 
 namespace {
 
-constexpr int MAX_QSEARCH_DEPTH = 8;
+constexpr int MAX_QSEARCH_DEPTH = 12;
 
 enum NodeType {
     PVNode,
@@ -147,20 +147,16 @@ public:
             bestEvalCurr = VALUE_NONE;
             const Value score =
                 negamax<PVNode>(alpha, beta, stats.depth, 0, false);
-            DEBUG("search finished");
 
             if (bestMoveCurr.isValid() && !searchInterrupted) {
-                DEBUG("0");
                 // Update evaluation stability statistics
                 history.updateStability(bestEvalRoot, bestEvalCurr);
                 bestMoveRoot = bestMoveCurr;
                 bestEvalRoot = bestEvalCurr;
-                DEBUG("1");
                 // Output the information about this iteration
                 SearchResult::from(stats, tc, bestEvalCurr, bestMoveRoot.move(),
                                    pvTable)
                     .print();
-                DEBUG("2");
             }
             if (hasReachedHardLimit()) {
                 break;
@@ -214,9 +210,6 @@ public:
         const bool isRootNode = ply == 0;
         const bool inCheck = pos.inCheck();
 
-        DEBUG("negamax(alpha=" << (int)alpha << ", beta=" << (int)beta
-                               << ", depth=" << depth << ", ply=" << ply
-                               << ", cutnode=" << cutnode << ")");
         stats.nodes++;
 
         // If running out of time, return immediately
@@ -225,7 +218,7 @@ public:
         }
         // Go into quiescence search if no more plys are left to search
         if (depth <= 0) {
-            return qsearch<NT>(alpha, beta, 8, ply);
+            return qsearch<NT>(alpha, beta, 10, ply);
         }
         // Draw detection
         if (ply > 0 && isDraw()) {
@@ -254,14 +247,14 @@ public:
          */
         const TTEntry *ttEntry = tt.probe(pos);
         const bool ttHit = ttEntry != nullptr;
-        const Move ttMove = ttHit ? Move::NO_MOVE : Move(ttEntry->move_code);
+        // Ensure sufficient depth, and even higher for PV nodes
+        const bool enoughTTDepth =
+            ttHit && (ttEntry->depth >= (depth + (isPVNode ? 2 : 0)));
+        const Move ttMove = ttHit ? Move(ttEntry->move_code) : Move::NO_MOVE;
 
-        const bool eligibleTTPrune =
-            !isRootNode && ttHit &&
-            // Ensure sufficient depth, and even higher for PV nodes
-            (ttEntry->depth >= (depth + (isPVNode ? 2 : 0))) &&
-            (ttEntry->value <= alpha || cutnode) &&
-            isInEntryBound(ttEntry, alpha, beta);
+        const bool eligibleTTPrune = !isRootNode && ttHit && enoughTTDepth &&
+                                     (ttEntry->value <= alpha || cutnode) &&
+                                     isInEntryBound(ttEntry, alpha, beta);
         if (eligibleTTPrune) {
             if (!isPVNode) { // at non-PV nodes, safely prune the node
                 return ttEntry->value;
@@ -277,8 +270,6 @@ public:
         }
         stack[ply].staticEval = staticEval;
 
-        DEBUG("static eval finished, eval=" << staticEval);
-
         const bool improving = isImproving(ply, staticEval);
 
         // Pruning before looping over the moves.
@@ -292,7 +283,6 @@ public:
             const Value futilityMargin = std::max(depth, 0) * 75;
             if (depth <= 7 && !alpha.isMate() &&
                 staticEval >= beta + futilityMargin) {
-                DEBUG("reverse futility pruned");
                 return beta + (staticEval - beta) / 3;
             }
 
@@ -332,20 +322,39 @@ public:
         int movesSearched = 0;
 
         MovePicker mp(pos);
-        mp.init(&history.killerTable[ply], &history.historyTable);
+        const Move hashMove =
+            (enoughTTDepth || cutnode) ? ttMove : Move::NO_MOVE;
+        mp.init(&history.killerTable[ply], &history.historyTable, hashMove);
 
         while (true) {
             Move m = mp.pick();
             if (!m.isValid()) {
                 break; // no more moves
             }
+            const bool moveGivesCheck = pos.isCheckMove(m);
+            const bool moveCaptures = pos.isCapture(m);
 
             movesSearched++;
-            DEBUG("  pick move " << m);
 
             // TODO pruning and reduction goes here
+            // Late Move Reduction
+            const int lmrMinDepth = isPVNode ? 4 : 3;
+            if (movesSearched > 3 && depth >= lmrMinDepth && !inCheck &&
+                cutnode) {
+                depth--;
+            }
+
+            // SEE Pruning
+            const int seePruneThreshold =
+                -(20 + (moveCaptures || moveGivesCheck) ? 24 * depth * depth
+                                                        : 40 * depth);
+            if (!isPVNode && !isRootNode && depth <= 8 && movesSearched > 1 &&
+                !pos.see(m, seePruneThreshold)) {
+                continue;
+            }
 
             pos.makeMove(m);
+            stack[ply].currentMove = m.move();
             Value score = VALUE_NONE;
 
             // Principal Variation Search
@@ -364,6 +373,7 @@ public:
             }
 
             pos.unmakeMove(m);
+            stack[ply].currentMove = 0;
 
             if (hasReachedHardLimit()) {
                 searchInterrupted = true;
@@ -371,8 +381,6 @@ public:
             }
 
             if (score > bestValue) {
-                DEBUG("score " << score << " replaced " << bestValue
-                               << " for move " << m);
                 bestValue = score;
             }
 
@@ -381,15 +389,15 @@ public:
                 alpha = score;
                 ttEntryType = EntryType::EXACT;
 
-                if (isPVNode && ply > 0) {
-                    // New PV node, update PV table
-                    pvTable[pvIndex] = m.move();
-                    uint16_t n = MAX_PLY - ply - 1;
-                    uint16_t *target = pvTable + pvIndex + 1;
-                    uint16_t *source = pvTable + stack[ply + 1].pvIndex;
-                    while (n-- && (*target++ = *source++))
-                        ;
-                }
+                // if (isPVNode && ply > 0) {
+                //     // New PV node, update PV table
+                //     pvTable[pvIndex] = m.move();
+                //     uint16_t n = MAX_PLY - ply - 1;
+                //     uint16_t *target = pvTable + pvIndex + 1;
+                //     uint16_t *source = pvTable + stack[ply + 1].pvIndex;
+                //     while (n-- && (*target++ = *source++))
+                //         ;
+                // }
 
                 if (ply == 0) { // Root node
                     bestEvalCurr = score;
@@ -402,8 +410,6 @@ public:
                 }
             }
         }
-
-        DEBUG("<< move loop finished");
 
         if (movesSearched == 0 && inCheck) {
             return Value::matedIn(ply);
@@ -427,9 +433,6 @@ public:
     template <NodeType NT>
     Value qsearch(Value alpha, Value beta, int depth, int ply) {
         constexpr bool isPVNode = NT == PVNode;
-        DEBUG("qsearch(alpha=" << (int)alpha << ", beta=" << (int)beta
-                               << ", depth=" << depth << ", ply=" << ply
-                               << ")");
         // If running out of time, return immediately
         if (hasReachedHardLimit()) {
             searchInterrupted = true;
@@ -479,6 +482,7 @@ public:
 
         Value bestValue = alpha;
 
+        DEBUG("qsearch: " << pos.getFen());
         while (true) {
             Move m = mp.pick();
             if (!m.isValid()) {
@@ -487,14 +491,26 @@ public:
             movesSearched++;
 
             // TODO add pruning!
+            const Move prevMove =
+                ply > 0 ? Move::NO_MOVE : stack[ply - 1].currentMove;
+            const bool isRecapture =
+                prevMove.isValid() && prevMove.to() == m.to();
+
+            // SEE Pruning
+            // DEBUG("Try SEE Pruning..." << m);
+            if (!inCheck && !isRecapture && !pos.see(m, -6)) {
+                continue;
+            }
 
             pos.makeMove(m);
+            stack[ply].currentMove = m.move();
+
             const Value v = -qsearch<NT>(-beta, -alpha, depth - 1, ply + 1);
+
             pos.unmakeMove(m);
+            stack[ply].currentMove = 0;
 
             if (v > bestValue) {
-                DEBUG("in qsearch, move " << m << ": " << v << " replaced "
-                                          << bestValue);
                 bestValue = v;
             }
             if (v > alpha) {
@@ -508,7 +524,6 @@ public:
         if (movesSearched == 0 && inCheck) {
             return Value::matedIn(ply);
         }
-        DEBUG("qsearch quit with " << bestValue);
         return bestValue;
     }
 
@@ -596,3 +611,9 @@ void stopThinking() {
         searcher->abortSearch();
     }
 }
+
+// info depth 6 score cp 55 nodes 23914 seldepth 13 time 48 pv d2d4
+// info depth 10 score cp 66 nodes 4328501 seldepth 17 time 11070 pv d2d4
+// > Branching factor: 4.609287
+// >   Renegade 0.7.0  4.480959  (1655)
+// >   Stockfish 17    2.270066

@@ -5,6 +5,8 @@
 #include <cmath>
 #include <stack>
 
+constexpr int SEE_PIECE_VALUE[] = {100, 300, 320, 550, 1000, 99999, 0};
+
 /**
  * Simple extension to Board with extra helper functions.
  */
@@ -101,6 +103,113 @@ public:
     }
     bool hasNonPawnMaterial() const {
         return hasNonPawnMaterial(WHITE) && hasNonPawnMaterial(BLACK);
+    }
+
+    /**
+     * Static Exchange Evaluation.
+     *
+     * This is useful to check if a series of captures is good without
+     * explicitly playing the moves. This helps improve move ordering and
+     * skipping certain moves in search.
+     */
+    bool see(const Move move, int threshold) {
+        bool isCriticalMove = move == Move::make(Square::underlying::SQ_F3,
+                                                 Square::underlying::SQ_D4);
+        // if (isCriticalMove) {
+        //     std::cerr << "***\n";
+        // }
+
+        const Square from = move.from();
+        const Square to = move.to();
+        const auto moveType = move.typeOf();
+        const PieceType fromType = at<PieceType>(from);
+        const PieceType toType =
+            moveType == Move::ENPASSANT ? TYPE_PAWN : at<PieceType>(to);
+        PieceType nextVictim =
+            moveType == Move::PROMOTION ? move.promotionType() : fromType;
+
+        int balance = -threshold;
+        balance += toType != PieceType::NONE ? SEE_PIECE_VALUE[(int)toType] : 0;
+        if (moveType == Move::PROMOTION) {
+            balance +=
+                SEE_PIECE_VALUE[(int)move.promotionType()] - SEE_PIECE_VALUE[0];
+        }
+
+        // Best case fails to beat threshold
+        if (balance < 0) {
+            return false;
+        }
+
+        balance -= SEE_PIECE_VALUE[(int)nextVictim];
+        if (balance >= 0) { // Guaranteed to beat the threshold if the balance
+                            // is still positive even after the exchange
+            return true;
+        }
+
+        Bitboard diagPieces = pieces(TYPE_BISHOP) | pieces(TYPE_QUEEN);
+        Bitboard orthPieces = pieces(TYPE_ROOK) | pieces(TYPE_QUEEN);
+        Bitboard occupied = occ();
+
+        // Suppose that move was actually made
+        occupied =
+            occupied ^ Bitboard::fromSquare(from) ^ Bitboard::fromSquare(to);
+        if (moveType == Move::ENPASSANT) {
+            occupied &= ~Bitboard::fromSquare(enpassantSq());
+        }
+
+        // Get all attackers to that square
+        Bitboard attackers = attacks::attackers(*this, WHITE, to, occupied) |
+                             attacks::attackers(*this, BLACK, to, occupied);
+        attackers &= occupied;
+
+        Color color = ~this->sideToMove();
+
+        while (true) {
+            // If we have no more attackers, we lose material
+            Bitboard myAttackers = attackers & us(color);
+            if (myAttackers.empty()) {
+                break;
+            }
+
+            // Find least valuable attacker
+            for (PieceType pt : {TYPE_PAWN, TYPE_KNIGHT, TYPE_BISHOP, TYPE_ROOK,
+                                 TYPE_QUEEN, TYPE_KING}) {
+                nextVictim = pt;
+                if (attackers & pieces(pt, color)) {
+                    break;
+                }
+            }
+
+            // Remove this attacker from the occupied bitboard
+
+            // fix bug of infinite loop
+            occupied &= ~Bitboard::fromSquare(
+                Square((myAttackers & pieces(nextVictim, color)).lsb()));
+
+            if (nextVictim == TYPE_PAWN || nextVictim == TYPE_BISHOP ||
+                nextVictim == TYPE_QUEEN) {
+                attackers |= (attacks::bishop(to, occupied) & diagPieces);
+            }
+            if (nextVictim == TYPE_ROOK || nextVictim == TYPE_QUEEN) {
+                attackers |= (attacks::rook(to, occupied) & orthPieces);
+            }
+
+            attackers &= occupied;
+            color = ~color;
+            balance = -balance - 1 - SEE_PIECE_VALUE[(int)nextVictim];
+
+            if (balance >= 0) { // We win material if the balance is
+                                // non-negative after the exchanges
+                if (nextVictim == TYPE_KING && (attackers & us(color))) {
+                    // If we are attacking king and we still have attackers, we
+                    // still win
+                    color = ~color;
+                }
+                break;
+            }
+        }
+
+        return sideToMove() != color;
     }
 
 public:

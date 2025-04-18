@@ -362,7 +362,8 @@ namespace {
 MovePicker::MovePicker(Position &pos) : pos(pos) {
 }
 
-void MovePicker::init(KillerTbl *killerTable, HistTbl *histTable) {
+void MovePicker::init(KillerTbl *killerTable, HistTbl *histTable,
+                      Move hashMove) {
     Movelist moves = pos.legalMoves();
     for (size_t i = 0; i < moves.size(); ++i) {
         const Move move = moves[i];
@@ -370,7 +371,9 @@ void MovePicker::init(KillerTbl *killerTable, HistTbl *histTable) {
 
         int16_t s = 0;
         if (killerTable && killerTable->has(move)) {
-            s = 30000; // Killer moves has to be searched first
+            s = 20000; // Killer moves has to be searched first
+        } else if (hashMove.isValid() && move == hashMove) {
+            s = 30000;
         } else {
             s = score(move);
             if (histTable) {
