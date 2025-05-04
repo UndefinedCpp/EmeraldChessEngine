@@ -327,6 +327,11 @@ public:
         mp.init(&history.killerTable[ply], &history.historyTable, hashMove);
 
         while (true) {
+            if (hasReachedHardLimit()) {
+                searchInterrupted = true;
+                return alpha;
+            }
+
             Move m = mp.pick();
             if (!m.isValid()) {
                 break; // no more moves
@@ -374,11 +379,6 @@ public:
 
             pos.unmakeMove(m);
             stack[ply].currentMove = 0;
-
-            if (hasReachedHardLimit()) {
-                searchInterrupted = true;
-                return alpha;
-            }
 
             if (score > bestValue) {
                 bestValue = score;
@@ -612,8 +612,9 @@ void stopThinking() {
     }
 }
 
-// info depth 6 score cp 55 nodes 23914 seldepth 13 time 48 pv d2d4
 // info depth 10 score cp 66 nodes 4328501 seldepth 17 time 11070 pv d2d4
-// > Branching factor: 4.609287
+// info depth 10 score cp 66 nodes 705977 seldepth 19 time 1267 pv d2d4
+// (2025/4/19) > Branching factor: 4.609287
+//                     3.844846 [2025/4/19]
 // >   Renegade 0.7.0  4.480959  (1655)
 // >   Stockfish 17    2.270066

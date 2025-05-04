@@ -67,7 +67,7 @@ struct TimeControl {
         if (softNodesWall > 0 && nodes >= softNodesWall)
             return true;
         if (maxDepth > 0) {
-            return depth >= (int)maxDepth;
+            return depth > (int)maxDepth;
         }
         return (uint32_t)_elapsed() >= hardTimeWall;
     }

@@ -465,7 +465,7 @@ int16_t MovePicker::score(Move move) {
     }
 
     // Statistical bonus, even more if this move is not an obvious blunder
-    const int divider = likelyBlunder ? 50 : 15;
+    const int divider = likelyBlunder ? 80 : 20;
     const bool queensOnBoard = pos.countPieces(TYPE_QUEEN) == 2;
     const auto freqTablebase =
         (pos.fullMoveNumber() <= 12 && queensOnBoard) ? OPENING_MOVE_FREQ
