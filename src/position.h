@@ -3,7 +3,6 @@
 #include "chess.hpp"
 #include "types.h"
 #include <cmath>
-#include <stack>
 
 constexpr int SEE_PIECE_VALUE[] = {100, 300, 320, 550, 1000, 99999, 0};
 
@@ -43,7 +42,7 @@ public:
      * Get the legal moves for the opponent in the current position.
      */
     const Movelist getOpponentMoves() const {
-        Movelist moves;
+        Movelist    moves;
         const Color opponent = ~sideToMove();
         if (opponent == WHITE) {
             movegen::legalmoves<BLACK, MOVE_GEN_ALL>(moves, *this, 63);
@@ -59,23 +58,16 @@ public:
     Bitboard getAttackMap(const Square square) const {
         Piece piece = at(square);
         Color color = piece.color();
-        int type = static_cast<int>(piece.type());
+        int   type  = static_cast<int>(piece.type());
         switch (type) {
-        case (int)TYPE_PAWN:
-            return chess::attacks::pawn(color, square);
-        case (int)TYPE_KNIGHT:
-            return chess::attacks::knight(square);
-        case (int)TYPE_BISHOP:
-            return chess::attacks::bishop(square, occ());
-        case (int)TYPE_ROOK:
-            return chess::attacks::rook(square, occ());
-        case (int)TYPE_QUEEN:
-            return chess::attacks::bishop(square, occ()) |
-                   chess::attacks::rook(square, occ());
-        case (int)TYPE_KING:
-            return chess::attacks::king(square);
-        default:
-            return Bitboard(0ull);
+            case (int) TYPE_PAWN: return chess::attacks::pawn(color, square);
+            case (int) TYPE_KNIGHT: return chess::attacks::knight(square);
+            case (int) TYPE_BISHOP: return chess::attacks::bishop(square, occ());
+            case (int) TYPE_ROOK: return chess::attacks::rook(square, occ());
+            case (int) TYPE_QUEEN:
+                return chess::attacks::bishop(square, occ()) | chess::attacks::rook(square, occ());
+            case (int) TYPE_KING: return chess::attacks::king(square);
+            default: return Bitboard(0ull);
         }
     }
 
@@ -83,22 +75,20 @@ public:
      * Similar to `getAttackMap`, but not including friendly occupied squares.
      */
     Bitboard getMotionMap(const Square square) const {
-        Color ally = at(square).color();
+        Color    ally         = at(square).color();
         Bitboard allyOccupied = us(ally);
-        Bitboard attackMap = getAttackMap(square);
+        Bitboard attackMap    = getAttackMap(square);
         return attackMap & ~allyOccupied;
     }
 
-    int countPieces(const chess::PieceType type) const {
-        return pieces(type).count();
-    }
+    int countPieces(const chess::PieceType type) const { return pieces(type).count(); }
     int countPieces(const chess::PieceType type, const Color color) const {
         return pieces(type, color).count();
     }
 
     bool hasNonPawnMaterial(const Color color) const {
         const Bitboard occupied = us(color);
-        const Bitboard pawns = pieces(TYPE_PAWN, color);
+        const Bitboard pawns    = pieces(TYPE_PAWN, color);
         return (occupied & ~pawns) != 0;
     }
     bool hasNonPawnMaterial() const {
@@ -113,34 +103,23 @@ public:
      * skipping certain moves in search.
      */
     bool see(const Move move, int threshold) {
-        bool isCriticalMove = move == Move::make(Square::underlying::SQ_F3,
-                                                 Square::underlying::SQ_D4);
-        // if (isCriticalMove) {
-        //     std::cerr << "***\n";
-        // }
-
-        const Square from = move.from();
-        const Square to = move.to();
-        const auto moveType = move.typeOf();
-        const PieceType fromType = at<PieceType>(from);
-        const PieceType toType =
-            moveType == Move::ENPASSANT ? TYPE_PAWN : at<PieceType>(to);
-        PieceType nextVictim =
-            moveType == Move::PROMOTION ? move.promotionType() : fromType;
+        const Square    from       = move.from();
+        const Square    to         = move.to();
+        const auto      moveType   = move.typeOf();
+        const PieceType fromType   = at<PieceType>(from);
+        const PieceType toType     = moveType == Move::ENPASSANT ? TYPE_PAWN : at<PieceType>(to);
+        PieceType       nextVictim = moveType == Move::PROMOTION ? move.promotionType() : fromType;
 
         int balance = -threshold;
-        balance += toType != PieceType::NONE ? SEE_PIECE_VALUE[(int)toType] : 0;
+        balance += toType != PieceType::NONE ? SEE_PIECE_VALUE[(int) toType] : 0;
         if (moveType == Move::PROMOTION) {
-            balance +=
-                SEE_PIECE_VALUE[(int)move.promotionType()] - SEE_PIECE_VALUE[0];
+            balance += SEE_PIECE_VALUE[(int) move.promotionType()] - SEE_PIECE_VALUE[0];
         }
 
         // Best case fails to beat threshold
-        if (balance < 0) {
-            return false;
-        }
+        if (balance < 0) { return false; }
 
-        balance -= SEE_PIECE_VALUE[(int)nextVictim];
+        balance -= SEE_PIECE_VALUE[(int) nextVictim];
         if (balance >= 0) { // Guaranteed to beat the threshold if the balance
                             // is still positive even after the exchange
             return true;
@@ -148,14 +127,11 @@ public:
 
         Bitboard diagPieces = pieces(TYPE_BISHOP) | pieces(TYPE_QUEEN);
         Bitboard orthPieces = pieces(TYPE_ROOK) | pieces(TYPE_QUEEN);
-        Bitboard occupied = occ();
+        Bitboard occupied   = occ();
 
         // Suppose that move was actually made
-        occupied =
-            occupied ^ Bitboard::fromSquare(from) ^ Bitboard::fromSquare(to);
-        if (moveType == Move::ENPASSANT) {
-            occupied &= ~Bitboard::fromSquare(enpassantSq());
-        }
+        occupied = occupied ^ Bitboard::fromSquare(from) ^ Bitboard::fromSquare(to);
+        if (moveType == Move::ENPASSANT) { occupied &= ~Bitboard::fromSquare(enpassantSq()); }
 
         // Get all attackers to that square
         Bitboard attackers = attacks::attackers(*this, WHITE, to, occupied) |
@@ -167,27 +143,20 @@ public:
         while (true) {
             // If we have no more attackers, we lose material
             Bitboard myAttackers = attackers & us(color);
-            if (myAttackers.empty()) {
-                break;
-            }
+            if (myAttackers.empty()) { break; }
 
             // Find least valuable attacker
-            for (PieceType pt : {TYPE_PAWN, TYPE_KNIGHT, TYPE_BISHOP, TYPE_ROOK,
-                                 TYPE_QUEEN, TYPE_KING}) {
+            for (PieceType pt :
+                 {TYPE_PAWN, TYPE_KNIGHT, TYPE_BISHOP, TYPE_ROOK, TYPE_QUEEN, TYPE_KING}) {
                 nextVictim = pt;
-                if (attackers & pieces(pt, color)) {
-                    break;
-                }
+                if (attackers & pieces(pt, color)) { break; }
             }
 
             // Remove this attacker from the occupied bitboard
+            occupied &=
+                ~Bitboard::fromSquare(Square((myAttackers & pieces(nextVictim, color)).lsb()));
 
-            // fix bug of infinite loop
-            occupied &= ~Bitboard::fromSquare(
-                Square((myAttackers & pieces(nextVictim, color)).lsb()));
-
-            if (nextVictim == TYPE_PAWN || nextVictim == TYPE_BISHOP ||
-                nextVictim == TYPE_QUEEN) {
+            if (nextVictim == TYPE_PAWN || nextVictim == TYPE_BISHOP || nextVictim == TYPE_QUEEN) {
                 attackers |= (attacks::bishop(to, occupied) & diagPieces);
             }
             if (nextVictim == TYPE_ROOK || nextVictim == TYPE_QUEEN) {
@@ -195,8 +164,8 @@ public:
             }
 
             attackers &= occupied;
-            color = ~color;
-            balance = -balance - 1 - SEE_PIECE_VALUE[(int)nextVictim];
+            color   = ~color;
+            balance = -balance - 1 - SEE_PIECE_VALUE[(int) nextVictim];
 
             if (balance >= 0) { // We win material if the balance is
                                 // non-negative after the exchanges
@@ -240,8 +209,7 @@ inline int manhattan(const Square a, const Square b) {
  * of king steps
  */
 inline int chebyshev(const Square a, const Square b) {
-    return std::max(std::abs(a.file() - b.file()),
-                    std::abs(a.rank() - b.rank()));
+    return std::max(std::abs(a.file() - b.file()), std::abs(a.rank() - b.rank()));
 }
 
 /**
@@ -257,17 +225,11 @@ inline int knight(const Square a, const Square b) {
         return 4;
     } else if (dx == 1 && dy == 1) {
         // Special case for corners
-        bool aIsCorner = (a == Square::underlying::SQ_A1) ||
-                         (a == Square::underlying::SQ_H1) ||
-                         (a == Square::underlying::SQ_A8) ||
-                         (a == Square::underlying::SQ_H8);
-        bool bIsCorner = (b == Square::underlying::SQ_A1) ||
-                         (b == Square::underlying::SQ_H1) ||
-                         (b == Square::underlying::SQ_A8) ||
-                         (b == Square::underlying::SQ_H8);
-        if (aIsCorner || bIsCorner) {
-            return 4;
-        }
+        bool aIsCorner = (a == Square::underlying::SQ_A1) || (a == Square::underlying::SQ_H1) ||
+                         (a == Square::underlying::SQ_A8) || (a == Square::underlying::SQ_H8);
+        bool bIsCorner = (b == Square::underlying::SQ_A1) || (b == Square::underlying::SQ_H1) ||
+                         (b == Square::underlying::SQ_A8) || (b == Square::underlying::SQ_H8);
+        if (aIsCorner || bIsCorner) { return 4; }
     }
     int m = std::ceil(std::max(std::max(dx / 2.0, dy / 2.0), (dx + dy) / 3.0));
     return m + ((m + dx + dy) % 2);
