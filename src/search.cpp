@@ -14,11 +14,8 @@
 // #define DEBUG_ENABLED
 
 #ifdef DEBUG_ENABLED
-#define DEBUG(...)                                                             \
-    do {                                                                       \
-        std::cerr << __FILE__ << ":" << __LINE__ << " - " << __VA_ARGS__       \
-                  << "\n";                                                     \
-    } while (0);
+#define DEBUG(...)                                                                                 \
+    do { std::cerr << __FILE__ << ":" << __LINE__ << " - " << __VA_ARGS__ << "\n"; } while (0);
 #else
 #define DEBUG(...)
 #endif
@@ -33,46 +30,48 @@ enum NodeType {
 };
 
 struct Scratchpad {
-    Value staticEval = Value::none();
-    uint16_t currentMove = 0;
-    uint16_t bestMove = 0;
-    uint16_t pvIndex = 0;
-    bool nullMoveAllowed = true;
+    Value    staticEval      = Value::none();
+    uint16_t currentMove     = 0;
+    uint16_t bestMove        = 0;
+    uint16_t pvIndex         = 0;
+    bool     nullMoveAllowed = true;
 };
 
 struct SearchStatistics {
-    uint32_t nodes = 0;
-    uint16_t depth = 1;
+    uint32_t nodes    = 0;
+    uint16_t depth    = 1;
     uint16_t seldepth = 1;
 };
 
 struct SearchResult {
-    Value score = VALUE_NONE;
-    int16_t depth = -1;
-    int16_t seldepth = -1;
-    uint32_t nodes = 0;
-    uint16_t time = 0;
-    uint16_t bestmove = 0;
-    const uint16_t *pvTable = nullptr;
+    Value           score    = VALUE_NONE;
+    int16_t         depth    = -1;
+    int16_t         seldepth = -1;
+    uint32_t        nodes    = 0;
+    uint16_t        time     = 0;
+    uint16_t        bestmove = 0;
+    const uint16_t* pvTable  = nullptr;
 
-    static SearchResult from(const SearchStatistics &stats,
-                             const TimeControl &tc, Value bestValue,
-                             Move bestMove, const uint16_t *pvTable) {
+    static SearchResult from(
+        const SearchStatistics& stats,
+        const TimeControl&      tc,
+        Value                   bestValue,
+        Move                    bestMove,
+        const uint16_t*         pvTable) {
         SearchResult item;
-        item.depth = stats.depth;
+        item.depth    = stats.depth;
         item.seldepth = stats.seldepth;
-        item.nodes = stats.nodes;
-        item.score = bestValue;
+        item.nodes    = stats.nodes;
+        item.score    = bestValue;
         item.bestmove = bestMove.move();
-        item.time = tc._elapsed();
-        item.pvTable = pvTable;
+        item.time     = tc._elapsed();
+        item.pvTable  = pvTable;
         return item;
     }
 
     void print() const {
-        std::cout << "info depth " << depth << " score " << score << " nodes "
-                  << nodes << " seldepth " << seldepth << " time " << time
-                  << " pv " << Move(bestmove);
+        std::cout << "info depth " << depth << " score " << score << " nodes " << nodes
+                  << " seldepth " << seldepth << " time " << time << " pv " << Move(bestmove);
         std::cout << std::endl;
     }
 };
@@ -84,34 +83,31 @@ struct SearchResult {
  */
 class Searcher {
 private:
-    Move bestMoveCurr;
+    Move  bestMoveCurr;
     Value bestEvalCurr;
 
-    SearchHistory history;
-    Scratchpad stack[MAX_PLY];
+    SearchHistory    history;
+    Scratchpad       stack[MAX_PLY];
     SearchStatistics stats;
 
-    Position pos;
+    Position    pos;
     TimeControl tc;
 
-    bool searchAborted = false;
+    bool searchAborted     = false;
     bool searchInterrupted = false;
 
     uint16_t pvTable[(MAX_PLY * MAX_PLY + MAX_PLY) / 2]; // triangular array
 
 public:
-    Searcher(const Position &pos) : pos(pos) {
-    }
+    Searcher(const Position& pos) : pos(pos) {}
 
-    void search(SearchResult &result, TimeControl timeControl) {
+    void search(SearchResult& result, TimeControl timeControl) {
         // Reset all local variables
         bestMoveCurr = Move::NO_MOVE;
         bestEvalCurr = VALUE_NONE;
         history.clear();
         stats = SearchStatistics();
-        for (size_t i = 0; i < MAX_PLY; ++i) {
-            stack[i] = Scratchpad();
-        }
+        for (size_t i = 0; i < MAX_PLY; ++i) { stack[i] = Scratchpad(); }
         searchInterrupted = false;
 
         this->tc = timeControl;
@@ -121,8 +117,7 @@ public:
 
         // Handle no legal move
         if (mp.size() == 0) {
-            result = SearchResult::from(stats, tc, DRAW_VALUE, Move::NO_MOVE,
-                                        pvTable);
+            result = SearchResult::from(stats, tc, DRAW_VALUE, Move::NO_MOVE, pvTable);
             std::cerr << "info string no legal moves" << std::endl;
             return;
         }
@@ -130,23 +125,21 @@ public:
         // competition
         if (tc.competitionMode && mp.size() == 1) {
             Value staticEval = evaluate(pos);
-            result =
-                SearchResult::from(stats, tc, staticEval, mp.pick(), pvTable);
+            result           = SearchResult::from(stats, tc, staticEval, mp.pick(), pvTable);
             return;
         }
 
-        Value alpha = Value::matedIn(0);
-        Value beta = Value::mateIn(0);
-        Value window = 50;
+        Value alpha        = Value::matedIn(0);
+        Value beta         = Value::mateIn(0);
+        Value window       = 50;
         Value bestEvalRoot = Value::none();
-        Move bestMoveRoot = Move::NO_MOVE;
+        Move  bestMoveRoot = Move::NO_MOVE;
 
         while (!hasReachedSoftLimit() && stats.depth < MAX_PLY) {
             // Reset variable for this iteration
-            bestMoveCurr = Move::NO_MOVE;
-            bestEvalCurr = VALUE_NONE;
-            const Value score =
-                negamax<PVNode>(alpha, beta, stats.depth, 0, false);
+            bestMoveCurr      = Move::NO_MOVE;
+            bestEvalCurr      = VALUE_NONE;
+            const Value score = negamax<PVNode>(alpha, beta, stats.depth, 0, false);
 
             if (bestMoveCurr.isValid() && !searchInterrupted) {
                 // Update evaluation stability statistics
@@ -154,22 +147,16 @@ public:
                 bestMoveRoot = bestMoveCurr;
                 bestEvalRoot = bestEvalCurr;
                 // Output the information about this iteration
-                SearchResult::from(stats, tc, bestEvalCurr, bestMoveRoot.move(),
-                                   pvTable)
-                    .print();
+                SearchResult::from(stats, tc, bestEvalCurr, bestMoveRoot.move(), pvTable).print();
             }
-            if (hasReachedHardLimit()) {
-                break;
-            }
-            if (tc.competitionMode && score.isMate()) {
-                break;
-            }
+            if (hasReachedHardLimit()) { break; }
+            if (tc.competitionMode && score.isMate()) { break; }
 
             // Aspiration window
             if (stats.depth >= 3) {
                 if (score <= alpha) {
-                    beta = (alpha + beta) / 2;
-                    alpha = alpha - window;
+                    beta   = (alpha + beta) / 2;
+                    alpha  = alpha - window;
                     window = window * 2;
                     continue;
                 }
@@ -179,8 +166,8 @@ public:
                     continue;
                 }
                 window = 50;
-                alpha = score - window;
-                beta = score + window;
+                alpha  = score - window;
+                beta   = score + window;
             }
 
             stats.depth++;
@@ -191,8 +178,7 @@ public:
             bestMoveRoot = mp.pick();
         }
 
-        result =
-            SearchResult::from(stats, tc, bestEvalRoot, bestMoveRoot, pvTable);
+        result = SearchResult::from(stats, tc, bestEvalRoot, bestMoveRoot, pvTable);
     }
 
     /**
@@ -206,37 +192,29 @@ public:
      */
     template <NodeType NT>
     Value negamax(Value alpha, Value beta, int depth, int ply, bool cutnode) {
-        constexpr bool isPVNode = NT == PVNode;
-        const bool isRootNode = ply == 0;
-        const bool inCheck = pos.inCheck();
+        constexpr bool isPVNode   = NT == PVNode;
+        const bool     isRootNode = ply == 0;
+        const bool     inCheck    = pos.inCheck();
 
         stats.nodes++;
 
         // If running out of time, return immediately
-        if (hasReachedHardLimit()) {
-            return alpha;
-        }
+        if (hasReachedHardLimit()) { return alpha; }
         // Go into quiescence search if no more plys are left to search
-        if (depth <= 0) {
-            return qsearch<NT>(alpha, beta, 10, ply);
-        }
+        if (depth <= 0) { return qsearch<NT>(alpha, beta, 10, ply); }
         // Draw detection
-        if (ply > 0 && isDraw()) {
-            return DRAW_VALUE;
-        }
+        if (ply > 0 && isDraw()) { return DRAW_VALUE; }
         /**
          * Mate Distance Pruning.
          */
         alpha = std::max(alpha, Value::matedIn(ply));
-        beta = std::min(beta, Value::mateIn(ply));
-        if (alpha >= beta) {
-            return alpha;
-        }
+        beta  = std::min(beta, Value::mateIn(ply));
+        if (alpha >= beta) { return alpha; }
 
         history.killerTable[ply + 1].clear();
 
         const uint16_t pvIndex = stack[ply].pvIndex;
-        pvTable[pvIndex] = Move::NO_MOVE;
+        pvTable[pvIndex]       = Move::NO_MOVE;
         stack[ply + 1].pvIndex = pvIndex + MAX_PLY - ply;
 
         /**
@@ -245,12 +223,11 @@ public:
          * If a position is reached before and its evaluation is stored in the
          * table, we can potentially reuse the result from previous searches.
          */
-        const TTEntry *ttEntry = tt.probe(pos);
-        const bool ttHit = ttEntry != nullptr;
+        const TTEntry* ttEntry = tt.probe(pos);
+        const bool     ttHit   = ttEntry != nullptr;
         // Ensure sufficient depth, and even higher for PV nodes
-        const bool enoughTTDepth =
-            ttHit && (ttEntry->depth >= (depth + (isPVNode ? 2 : 0)));
-        const Move ttMove = ttHit ? Move(ttEntry->move_code) : Move::NO_MOVE;
+        const bool enoughTTDepth = ttHit && (ttEntry->depth >= (depth + (isPVNode ? 2 : 0)));
+        const Move ttMove        = ttHit ? Move(ttEntry->move_code) : Move::NO_MOVE;
 
         const bool eligibleTTPrune = !isRootNode && ttHit && enoughTTDepth &&
                                      (ttEntry->value <= alpha || cutnode) &&
@@ -265,9 +242,7 @@ public:
 
         // Static evaluation. This guides pruning and reduction.
         Value staticEval = VALUE_NONE;
-        if (!inCheck) {
-            staticEval = evaluate(pos);
-        }
+        if (!inCheck) { staticEval = evaluate(pos); }
         stack[ply].staticEval = staticEval;
 
         const bool improving = isImproving(ply, staticEval);
@@ -281,8 +256,7 @@ public:
              * to fail high.
              */
             const Value futilityMargin = std::max(depth, 0) * 75;
-            if (depth <= 7 && !alpha.isMate() &&
-                staticEval >= beta + futilityMargin) {
+            if (depth <= 7 && !alpha.isMate() && staticEval >= beta + futilityMargin) {
                 return beta + (staticEval - beta) / 3;
             }
 
@@ -293,17 +267,15 @@ public:
              * turn) is worse than the best legal move.
              */
             if (stack[ply].nullMoveAllowed && // last ply wasn't a null move
-                depth >= 3 && staticEval >= beta &&
-                (!ttHit || cutnode || ttEntry->value >= beta) &&
+                depth >= 3 && staticEval >= beta && (!ttHit || cutnode || ttEntry->value >= beta) &&
                 pos.hasNonPawnMaterial() // zugzwang can break things
             ) {
-                stack[ply + 1].nullMoveAllowed =
-                    false; // disable NMP on next ply
-                const int reduction = 2 + depth / 3;
+                stack[ply + 1].nullMoveAllowed = false; // disable NMP on next ply
+                const int reduction            = 2 + depth / 3;
 
                 pos.makeNullMove();
-                Value nullMoveValue = -negamax<NonPVNode>(
-                    -beta, -beta + 1, depth - reduction, ply + 1, !cutnode);
+                Value nullMoveValue =
+                    -negamax<NonPVNode>(-beta, -beta + 1, depth - reduction, ply + 1, !cutnode);
                 pos.unmakeNullMove();
 
                 stack[ply + 1].nullMoveAllowed = true; // reset
@@ -316,14 +288,13 @@ public:
         }
 
         // Now we have decided to search this node.
-        Move bestMove = Move::NO_MOVE;
-        Value bestValue = VALUE_NONE;
-        EntryType ttEntryType = EntryType::UPPER_BOUND;
-        int movesSearched = 0;
+        Move      bestMove      = Move::NO_MOVE;
+        Value     bestValue     = VALUE_NONE;
+        EntryType ttEntryType   = EntryType::UPPER_BOUND;
+        int       movesSearched = 0;
 
         MovePicker mp(pos);
-        const Move hashMove =
-            (enoughTTDepth || cutnode) ? ttMove : Move::NO_MOVE;
+        const Move hashMove = (enoughTTDepth || cutnode) ? ttMove : Move::NO_MOVE;
         mp.init(&history.killerTable[ply], &history.historyTable, hashMove);
 
         while (true) {
@@ -337,22 +308,18 @@ public:
                 break; // no more moves
             }
             const bool moveGivesCheck = pos.isCheckMove(m);
-            const bool moveCaptures = pos.isCapture(m);
+            const bool moveCaptures   = pos.isCapture(m);
 
             movesSearched++;
 
             // TODO pruning and reduction goes here
             // Late Move Reduction
             const int lmrMinDepth = isPVNode ? 4 : 3;
-            if (movesSearched > 3 && depth >= lmrMinDepth && !inCheck &&
-                cutnode) {
-                depth--;
-            }
+            if (movesSearched > 3 && depth >= lmrMinDepth && !inCheck && cutnode) { depth--; }
 
             // SEE Pruning
             const int seePruneThreshold =
-                -(20 + (moveCaptures || moveGivesCheck) ? 24 * depth * depth
-                                                        : 40 * depth);
+                -(20 + ((moveCaptures || moveGivesCheck) ? 24 * depth * depth : 40 * depth));
             if (!isPVNode && !isRootNode && depth <= 8 && movesSearched > 1 &&
                 !pos.see(m, seePruneThreshold)) {
                 continue;
@@ -360,33 +327,28 @@ public:
 
             pos.makeMove(m);
             stack[ply].currentMove = m.move();
-            Value score = VALUE_NONE;
+            Value score            = VALUE_NONE;
 
             // Principal Variation Search
             if (movesSearched == 1) {
-                score = -negamax<NT>(-beta, -alpha, depth - 1, ply + 1,
-                                     !isPVNode && !cutnode);
+                score = -negamax<NT>(-beta, -alpha, depth - 1, ply + 1, !isPVNode && !cutnode);
             } else {
                 // Perform null window search
-                score = -negamax<NonPVNode>(-alpha - 1, -alpha, depth - 1,
-                                            ply + 1, !cutnode);
+                score = -negamax<NonPVNode>(-alpha - 1, -alpha, depth - 1, ply + 1, !cutnode);
                 if (score > alpha && score < beta) {
                     // re-search with full window
-                    score = -negamax<PVNode>(-beta, -alpha, depth - 1, ply + 1,
-                                             false);
+                    score = -negamax<PVNode>(-beta, -alpha, depth - 1, ply + 1, false);
                 }
             }
 
             pos.unmakeMove(m);
             stack[ply].currentMove = 0;
 
-            if (score > bestValue) {
-                bestValue = score;
-            }
+            if (score > bestValue) { bestValue = score; }
 
             if (score > alpha) {
-                bestMove = m;
-                alpha = score;
+                bestMove    = m;
+                alpha       = score;
                 ttEntryType = EntryType::EXACT;
 
                 // if (isPVNode && ply > 0) {
@@ -411,13 +373,9 @@ public:
             }
         }
 
-        if (movesSearched == 0 && inCheck) {
-            return Value::matedIn(ply);
-        }
+        if (movesSearched == 0 && inCheck) { return Value::matedIn(ply); }
 
-        if (!eligibleTTPrune) {
-            tt.store(pos, ttEntryType, depth, bestMove, bestValue);
-        }
+        if (!eligibleTTPrune) { tt.store(pos, ttEntryType, depth, bestMove, bestValue); }
         return bestValue;
     }
 
@@ -430,8 +388,7 @@ public:
      *
      * See https://www.chessprogramming.org/Quiescence_Search.
      */
-    template <NodeType NT>
-    Value qsearch(Value alpha, Value beta, int depth, int ply) {
+    template <NodeType NT> Value qsearch(Value alpha, Value beta, int depth, int ply) {
         constexpr bool isPVNode = NT == PVNode;
         // If running out of time, return immediately
         if (hasReachedHardLimit()) {
@@ -439,23 +396,15 @@ public:
             return alpha;
         }
         // Draw detection
-        if (isDraw()) {
-            return DRAW_VALUE;
-        }
+        if (isDraw()) { return DRAW_VALUE; }
         // Return if we are going too deep
-        if (depth <= 0 || ply >= MAX_PLY) {
-            return pos.inCheck() ? DRAW_VALUE : evaluate(pos);
-        }
+        if (depth <= 0 || ply >= MAX_PLY) { return pos.inCheck() ? DRAW_VALUE : evaluate(pos); }
         // Update selective depth
-        if (isPVNode && ply > stats.seldepth) {
-            stats.seldepth = ply;
-        }
+        if (isPVNode && ply > stats.seldepth) { stats.seldepth = ply; }
         // At non-PV nodes we perform early TT cutoff
         if (!isPVNode) {
-            TTEntry *entry = tt.probe(pos);
-            if (entry && isInEntryBound(entry, alpha, beta)) {
-                return entry->value;
-            }
+            TTEntry* entry = tt.probe(pos);
+            if (entry && isInEntryBound(entry, alpha, beta)) { return entry->value; }
         }
 
         const bool inCheck = pos.inCheck();
@@ -472,12 +421,8 @@ public:
         Value staticEval = VALUE_NONE;
         if (!inCheck) {
             staticEval = evaluate(pos);
-            if (staticEval >= beta) {
-                return staticEval;
-            }
-            if (staticEval > alpha) {
-                alpha = staticEval;
-            }
+            if (staticEval >= beta) { return staticEval; }
+            if (staticEval > alpha) { alpha = staticEval; }
         }
 
         Value bestValue = alpha;
@@ -485,22 +430,16 @@ public:
         DEBUG("qsearch: " << pos.getFen());
         while (true) {
             Move m = mp.pick();
-            if (!m.isValid()) {
-                break;
-            }
+            if (!m.isValid()) { break; }
             movesSearched++;
 
             // TODO add pruning!
-            const Move prevMove =
-                ply > 0 ? Move::NO_MOVE : stack[ply - 1].currentMove;
-            const bool isRecapture =
-                prevMove.isValid() && prevMove.to() == m.to();
+            const Move prevMove    = ply > 0 ? Move::NO_MOVE : stack[ply - 1].currentMove;
+            const bool isRecapture = prevMove.isValid() && prevMove.to() == m.to();
 
             // SEE Pruning
             // DEBUG("Try SEE Pruning..." << m);
-            if (!inCheck && !isRecapture && !pos.see(m, -6)) {
-                continue;
-            }
+            if (!inCheck && !isRecapture && !pos.see(m, -6)) { continue; }
 
             pos.makeMove(m);
             stack[ply].currentMove = m.move();
@@ -510,39 +449,27 @@ public:
             pos.unmakeMove(m);
             stack[ply].currentMove = 0;
 
-            if (v > bestValue) {
-                bestValue = v;
-            }
+            if (v > bestValue) { bestValue = v; }
             if (v > alpha) {
                 alpha = v;
-                if (v >= beta) {
-                    break;
-                }
+                if (v >= beta) { break; }
             }
         }
 
-        if (movesSearched == 0 && inCheck) {
-            return Value::matedIn(ply);
-        }
+        if (movesSearched == 0 && inCheck) { return Value::matedIn(ply); }
         return bestValue;
     }
 
-    void abortSearch() {
-        searchAborted = true;
-    }
+    void abortSearch() { searchAborted = true; }
 
 private:
     bool hasReachedHardLimit() {
-        if (searchAborted) {
-            return true;
-        }
+        if (searchAborted) { return true; }
         return tc.hitHardLimit(stats.depth, stats.nodes);
     }
 
     bool hasReachedSoftLimit() {
-        if (searchAborted) {
-            return true;
-        }
+        if (searchAborted) { return true; }
         return tc.hitSoftLimit(stats.depth, stats.nodes, history.evalStability);
     }
 
@@ -553,15 +480,13 @@ private:
      * checkmate.
      */
     bool isDraw() {
-        return pos.isHalfMoveDraw() || pos.isRepetition() ||
-               pos.isInsufficientMaterial();
+        return pos.isHalfMoveDraw() || pos.isRepetition() || pos.isInsufficientMaterial();
     }
 
-    bool isInEntryBound(const TTEntry *entry, Value alpha, Value beta) {
+    bool isInEntryBound(const TTEntry* entry, Value alpha, Value beta) {
         assert(entry != nullptr);
         return entry->type == EntryType::EXACT ||
-               (entry->type == EntryType::UPPER_BOUND &&
-                entry->value <= alpha) ||
+               (entry->type == EntryType::UPPER_BOUND && entry->value <= alpha) ||
                (entry->type == EntryType::LOWER_BOUND && entry->value >= beta);
     }
 
@@ -582,7 +507,7 @@ private:
 
 }; // namespace
 
-Searcher *searcher = nullptr;
+Searcher* searcher = nullptr;
 
 void think(SearchParams params, const Position pos) {
     SearchResult result;
@@ -591,15 +516,13 @@ void think(SearchParams params, const Position pos) {
     }
     searcher = new Searcher(pos);
 
-    const Color stm = pos.sideToMove();
-    const TimePoint tp = TimeControl::now();
-    const TimeControl tc = TimeControl(stm, params, tp);
-    std::cout << "info string tc " << tc.hardTimeWall << " " << tc.softTimeWall
-              << "\n";
+    const Color       stm = pos.sideToMove();
+    const TimePoint   tp  = TimeControl::now();
+    const TimeControl tc  = TimeControl(stm, params, tp);
+    std::cout << "info string tc " << tc.hardTimeWall << " " << tc.softTimeWall << "\n";
     searcher->search(result, tc);
 
-    std::cout << "bestmove " << chess::uci::moveToUci(Move(result.bestmove))
-              << std::endl;
+    std::cout << "bestmove " << chess::uci::moveToUci(Move(result.bestmove)) << std::endl;
     std::cout << std::flush;
 
     delete searcher;
@@ -607,13 +530,12 @@ void think(SearchParams params, const Position pos) {
 }
 
 void stopThinking() {
-    if (searcher != nullptr) {
-        searcher->abortSearch();
-    }
+    if (searcher != nullptr) { searcher->abortSearch(); }
 }
 
 // info depth 10 score cp 66 nodes 4328501 seldepth 17 time 11070 pv d2d4
 // info depth 10 score cp 66 nodes 705977 seldepth 19 time 1267 pv d2d4
+// info depth 10 score cp 62 nodes 752441 seldepth 19 time 1243 pv d2d4
 // (2025/4/19) > Branching factor: 4.609287
 //                     3.844846 [2025/4/19]
 // >   Renegade 0.7.0  4.480959  (1655)
