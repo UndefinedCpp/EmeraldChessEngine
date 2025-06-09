@@ -150,14 +150,15 @@ private:
                     total += OUTPOST_BONUS[PT == Bishop][supported];
                 }
 
-                if (PT == Bishop) {
-                    // Penalty for having too many pawns on the same color
-                    // square as the bishop
-                    Bitboard pawns   = pos.pieces(TYPE_PAWN, C);
-                    int      counter = 0;
-                    while (pawns) { counter += Square::same_color(Square(pawns.pop()), sq); }
-                    total -= BISHOP_PAWN_PENALTY * counter;
-                }
+                // todo this hurts performance too
+                // if (PT == Bishop) {
+                //     // Penalty for having too many pawns on the same color
+                //     // square as the bishop
+                //     Bitboard pawns   = pos.pieces(TYPE_PAWN, C);
+                //     int      counter = 0;
+                //     while (pawns) { counter += Square::same_color(Square(pawns.pop()), sq); }
+                //     total -= BISHOP_PAWN_PENALTY * counter;
+                // }
             }
 
             if (PT == Rook) {
@@ -170,17 +171,22 @@ private:
                         total += OPEN_ROOK_BONUS[0];
                     }
                 }
-                // Penalty for being trapped by the king, and even more
-                // if the king cannot castle
-                if (attackMap.count() <= 3) {
-                    chess::File f        = sq.file();
-                    chess::File kingFile = pos.kingSq(C).file();
-                    if ((f > chess::File::FILE_E && kingFile >= chess::File::FILE_E) ||
-                        (f < chess::File::FILE_D && kingFile <= chess::File::FILE_D)) {
-                        total -= TRAPPED_ROOK_PENALTY;
-                        if (!pos.castlingRights().has(C)) { total -= TRAPPED_ROOK_PENALTY; }
-                    }
-                }
+                // todo this drags down performance, investigate some time
+                // // Penalty for being trapped by the king, and even more
+                // // if the king cannot castle
+                // if (attackMap.count() <= 3) {
+                //     chess::File f        = sq.file();
+                //     chess::File kingFile = pos.kingSq(C).file();
+                //     if ((f > chess::File::FILE_E && kingFile >= chess::File::FILE_E) ||
+                //         (f < chess::File::FILE_D && kingFile <= chess::File::FILE_D)) {
+                //         total -= TRAPPED_ROOK_PENALTY;
+                //         if (!pos.castlingRights().has(C)) { total -= TRAPPED_ROOK_PENALTY; }
+                //     }
+                // }
+            }
+            if (PT == Queen) {
+                Bitboard potentialPinners = pos.pieces(TYPE_ROOK, _C) | pos.pieces(TYPE_BISHOP, _C);
+                if ((bool) (attackMap & potentialPinners)) { total -= WEAK_QUEEN_PENALTY; }
             }
         }
 
@@ -299,15 +305,3 @@ public:
 Value evaluate(Position& pos) {
     return Evaluator(pos)();
 }
-
-/**
- * info depth 2 score cp 25 nodes 118 seldepth 2 time 3 pv g1f3
-info depth 3 score cp 85 nodes 660 seldepth 4 time 7 pv g1f3
-info depth 4 score cp 36 nodes 1802 seldepth 5 time 14 pv g1f3
-info depth 5 score cp 86 nodes 2671 seldepth 11 time 21 pv d2d4
-info depth 5 score cp 90 nodes 8213 seldepth 11 time 38 pv d2d4
-info depth 6 score cp 55 nodes 17236 seldepth 15 time 57 pv d2d4
-info depth 7 score cp 65 nodes 55653 seldepth 16 time 130 pv d2d4
-info depth 8 score cp 57 nodes 145371 seldepth 17 time 271 pv d2d4
-info depth 9 score cp 70 nodes 347627 seldepth 18 time 613 pv d2d4
- */

@@ -119,7 +119,7 @@ constexpr S MINOR_KING_PROTECTOR = S(3, 4);
 constexpr S WEAK_QUEEN_PENALTY = S(27, 5);
 constexpr S TRAPPED_ROOK_PENALTY = S(30, 2);
 constexpr S OPEN_ROOK_BONUS[2] = {S(  9,  4), S( 22, 10)};
-constexpr S BISHOP_PAWN_PENALTY = S(  3,  10);
+constexpr S BISHOP_PAWN_PENALTY = S(  2,  10);
 
 constexpr S PASSED_PAWN_BONUS[] = {
     S(  0,  0),S(148,130),S( 84, 88),S( 31, 36),S(  8, 20),S(  5, 16),S(  0,  8),S(  0,  0)
