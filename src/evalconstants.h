@@ -110,16 +110,18 @@ constexpr S MOBILITY_BONUS[6][32] = {
 };
 
 constexpr S OUTPOST_BONUS[2][2] = {
-    {S( 11,  3), S( 18,  6)}, // Knight
-    {S(  5,  1), S(  8,  3)}  // Bishop
+    {S( 15, 10), S( 60, 32)}, // Knight
+    {S( 10,  5), S( 15,  2)}  // Bishop
 };
 constexpr S ISOLATED_PAWN_PENALTY = S(3, 8);
 constexpr S DOUBLED_PAWN_PENALTY = S(5, 23);
 constexpr S MINOR_KING_PROTECTOR = S(3, 4);
 constexpr S WEAK_QUEEN_PENALTY = S(27, 5);
-constexpr S TRAPPED_ROOK_PENALTY = S(30, 2);
-constexpr S OPEN_ROOK_BONUS[2] = {S(  9,  4), S( 22, 10)};
+constexpr S TRAPPED_ROOK_PENALTY = S(25, 5);
+constexpr S OPEN_ROOK_BONUS[2] = {S( 10,  4), S( 22, 10)};
 constexpr S BISHOP_PAWN_PENALTY = S(  2,  10);
+constexpr S KING_DISTANCE_PENALTY = S( 3,  4);
+constexpr S SPACE_BONUS = S(1, 0);
 
 constexpr S PASSED_PAWN_BONUS[] = {
     S(  0,  0),S(148,130),S( 84, 88),S( 31, 36),S(  8, 20),S(  5, 16),S(  0,  8),S(  0,  0)
@@ -150,6 +152,11 @@ constexpr Bitboard NEIGHBOR_FILES_BB[8] = {
 constexpr Bitboard OUTPOST_SQUARES[2] = {
     0x000000007E7E7E00,
     0x007E7E7E00000000,
+};
+
+constexpr Bitboard SPACE_FOR_MINORS[2] = {
+    0x3C3C3C3C00000000,
+    0x000000003C3C3C3C
 };
 
 /**

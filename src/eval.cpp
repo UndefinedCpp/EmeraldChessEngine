@@ -19,7 +19,9 @@ std::pair<bool, Value> checkGameStatus(Position& board) {
     ) {
         return {true, DRAW_VALUE};
     }
-    if (board.isRepetition()) { return {true, DRAW_VALUE}; }
+    if (board.isRepetition()) {
+        return {true, DRAW_VALUE};
+    }
     // Game is not over
     return {false, 0};
 }
@@ -76,7 +78,9 @@ private:
              {TYPE_PAWN, TYPE_KNIGHT, TYPE_BISHOP, TYPE_ROOK, TYPE_QUEEN, TYPE_KING}) {
             Bitboard bb = pos.pieces(pt, C);
             // Count non pawn material
-            if (pt != TYPE_PAWN) { cache.nonPawnMaterial[C] += PIECE_VALUE[pt] * bb.count(); }
+            if (pt != TYPE_PAWN) {
+                cache.nonPawnMaterial[C] += PIECE_VALUE[pt] * bb.count();
+            }
             // Count piece square table score
             while (bb) {
                 Square  sq    = bb.pop();
@@ -149,6 +153,14 @@ private:
                     bool supported = (bool) (cache.attackedBy[C][Pawn] & sqbb);
                     total += OUTPOST_BONUS[PT == Bishop][supported];
                 }
+                // Penalty for being far away from king
+                int kingDistance = 0;
+                if (PT == Knight) {
+                    kingDistance = chess::dist::knight(sq, pos.kingSq(C));
+                } else {
+                    kingDistance = chess::dist::chebyshev(sq, pos.kingSq(C));
+                }
+                total -= KING_DISTANCE_PENALTY * kingDistance;
 
                 // todo this hurts performance too
                 // if (PT == Bishop) {
@@ -171,22 +183,23 @@ private:
                         total += OPEN_ROOK_BONUS[0];
                     }
                 }
-                // todo this drags down performance, investigate some time
+
+                // // todo this drags down performance, investigate some time
                 // // Penalty for being trapped by the king, and even more
                 // // if the king cannot castle
                 // if (attackMap.count() <= 3) {
                 //     chess::File f        = sq.file();
                 //     chess::File kingFile = pos.kingSq(C).file();
-                //     if ((f > chess::File::FILE_E && kingFile >= chess::File::FILE_E) ||
-                //         (f < chess::File::FILE_D && kingFile <= chess::File::FILE_D)) {
+                //     if ((kingFile < chess::File::FILE_E) == (f < kingFile)) {
                 //         total -= TRAPPED_ROOK_PENALTY;
-                //         if (!pos.castlingRights().has(C)) { total -= TRAPPED_ROOK_PENALTY; }
                 //     }
                 // }
             }
             if (PT == Queen) {
                 Bitboard potentialPinners = pos.pieces(TYPE_ROOK, _C) | pos.pieces(TYPE_BISHOP, _C);
-                if ((bool) (attackMap & potentialPinners)) { total -= WEAK_QUEEN_PENALTY; }
+                if ((bool) (attackMap & potentialPinners)) {
+                    total -= WEAK_QUEEN_PENALTY;
+                }
             }
         }
 
@@ -223,12 +236,18 @@ private:
             const Bitboard doubled =
                 ours & (C == White ? (sq.rank().bb() << 8) : (sq.rank().bb() >> 8));
             // Punish isolated pawns
-            if (!neighbors) { total -= ISOLATED_PAWN_PENALTY; }
+            if (!neighbors) {
+                total -= ISOLATED_PAWN_PENALTY;
+            }
             // Punish doubled and unspported pawns
-            if (doubled && !supported) { total -= DOUBLED_PAWN_PENALTY; }
+            if (doubled && !supported) {
+                total -= DOUBLED_PAWN_PENALTY;
+            }
 
             // Cache passed pawns so we can evaluate them later
-            if (!stoppers && !doubled) { cache.passedPawns[C].set(sq.index()); }
+            if (!stoppers && !doubled) {
+                cache.passedPawns[C].set(sq.index());
+            }
         }
 
         return total;
@@ -249,6 +268,19 @@ private:
     }
 
     /**
+     * Space advantage
+     */
+    template <EvalColor C> Score _space() {
+        if ((int) (cache.nonPawnMaterial[White] + cache.nonPawnMaterial[Black]).mg < 6100) {
+            return S(0, 0);
+        }
+        const Bitboard squares =
+            SPACE_FOR_MINORS[C] & (~cache.attackedBy[_C][Pawn]) & ~(pos.pieces(TYPE_PAWN, C));
+        const int weight = pos.us(C).count() - pos.countPieces(TYPE_PAWN, C) - 1;
+        return SPACE_BONUS * (weight * weight * squares.count() / 16);
+    }
+
+    /**
      * Estimate game phase from material. This must be called after
      * `_check_material`.
      */
@@ -258,6 +290,25 @@ private:
         constexpr int MIDGAME_LIMIT = 7700;
         m                           = std::clamp(m, ENDGAME_LIMIT, MIDGAME_LIMIT);
         return ((m - ENDGAME_LIMIT) * ALL_GAME_PHASES) / (MIDGAME_LIMIT - ENDGAME_LIMIT);
+    }
+
+    /**
+     * Scales down endgame evaluation with simple heuristics.
+     */
+    int _endgameScaler() {
+        // Gather basic information
+        int wp = pos.countPieces(TYPE_PAWN, WHITE), bp = pos.countPieces(TYPE_PAWN, BLACK);
+        int wb = pos.countPieces(TYPE_BISHOP, WHITE), bb = pos.countPieces(TYPE_BISHOP, BLACK);
+
+        Score npm = cache.nonPawnMaterial[White] + cache.nonPawnMaterial[Black];
+        if (wb == 1 && bb == 1 && ((int) npm.eg <= 720)) {
+            // Check opposite colors
+            Square w = Square(pos.pieces(TYPE_BISHOP, WHITE).lsb());
+            Square b = Square(pos.pieces(TYPE_BISHOP, BLACK).lsb());
+            if (!Square::same_color(w, b))
+                return std::min(std::max(std::abs(wp - bp) - 2, 0) * 14, 64);
+        }
+        return 64;
     }
 
 public:
@@ -278,12 +329,14 @@ public:
         total += _piece<White, Rook>() - _piece<Black, Rook>();
         total += _piece<White, Queen>() - _piece<Black, Queen>();
         total += _pawns<White>() - _pawns<Black>();
+        // total += _space<White>() - _space<Black>(); // todo this doesn't help
         total += _passed<White>() - _passed<Black>();
 
         total += _king<White>() - _king<Black>();
 
-        int   phase = _phase();
-        Value v     = total.fuse(phase);
+        int phase = _phase();
+        total.eg  = (int) (total.eg) * _endgameScaler() / 64;
+        Value v   = total.fuse(phase);
 
         if (pos.sideToMove() == BLACK) {
             v = ~v; // flip the score so it is always POV
