@@ -353,25 +353,23 @@ namespace {
 
     constexpr int16_t PROMOTION_BONUS = 500;
     constexpr int16_t HANGING_PENALTY = 400;
-    constexpr int16_t QUEEN_HANGING_PENALTY = 800;
-    constexpr int16_t ESCAPING_BONUS = 200;
+    constexpr int16_t QUEEN_HANGING_PENALTY = 1000;
+    constexpr int16_t ESCAPING_BONUS = 300;
     constexpr int16_t CHECK_BONUS = 50;
 // clang-format on
 } // namespace
 
-MovePicker::MovePicker(Position &pos) : pos(pos) {
-}
+MovePicker::MovePicker(Position& pos) : pos(pos) {}
 
-void MovePicker::init(KillerTbl *killerTable, HistTbl *histTable,
-                      Move hashMove) {
+void MovePicker::init(KillerTbl* killerTable, HistTbl* histTable, Move hashMove) {
     Movelist moves = pos.legalMoves();
     for (size_t i = 0; i < moves.size(); ++i) {
-        const Move move = moves[i];
+        const Move move    = moves[i];
         const bool isWhite = pos.sideToMove() == WHITE;
 
         int16_t s = 0;
         if (killerTable && killerTable->has(move)) {
-            s = 20000; // Killer moves has to be searched first
+            s = 25000; // Killer moves has to be searched first
         } else if (hashMove.isValid() && move == hashMove) {
             s = 30000;
         } else {
@@ -382,17 +380,17 @@ void MovePicker::init(KillerTbl *killerTable, HistTbl *histTable,
             }
         }
 
-        q.push_back(MoveEntry{move.move(), s});
+        q.push_back(MoveEntry {move.move(), s});
     }
 
     std::sort(q.begin(), q.end(), std::less<>()); // ascending order
     m_size = q.size();
 }
 
-void MovePicker::initQuiet(HistTbl *historyTable) {
+void MovePicker::initQuiet(HistTbl* historyTable) {
     Movelist moves = pos.generateCaptureMoves();
     for (size_t i = 0; i < moves.size(); ++i) {
-        const Move move = moves[i];
+        const Move move    = moves[i];
         const bool isWhite = pos.sideToMove() == WHITE;
 
         int16_t s = score(move);
@@ -401,7 +399,7 @@ void MovePicker::initQuiet(HistTbl *historyTable) {
             s += historyTable->get(move, pt, isWhite);
         }
 
-        q.push_back(MoveEntry{move.move(), s});
+        q.push_back(MoveEntry {move.move(), s});
     }
 
     std::sort(q.begin(), q.end(), std::less<>()); // ascending order
@@ -412,40 +410,45 @@ void MovePicker::initQuiet(HistTbl *historyTable) {
  * Scores a move without any history context.
  */
 int16_t MovePicker::score(Move move) {
-    int16_t s = 0;
-    bool likelyBlunder = false;
-    const Color stm = pos.sideToMove();
+    int16_t     s             = 0;
+    bool        likelyBlunder = false;
+    const Color stm           = pos.sideToMove();
 
     // Apply MVV/LVA heuristic
-    PieceType aggressor = pos.at(move.from()).type();
-    PieceType victim = pos.at(move.to()).type();
-    const int16_t mvvlva = MVV_LVA_TABLE[(int)aggressor][(int)victim];
-    const bool isCapture = pos.isCapture(move);
-    if (mvvlva < 0) {
-        likelyBlunder = true; // losing capture
+    PieceType     aggressor = pos.at(move.from()).type();
+    PieceType     victim    = pos.at(move.to()).type();
+    const int16_t mvvlva    = MVV_LVA_TABLE[(int) aggressor][(int) victim];
+    const bool    isCapture = pos.isCapture(move);
+    if (isCapture) {
+        const bool likelyGood = pos.see(move, 0);
+        if (likelyGood) {
+            s += mvvlva > 0 ? mvvlva : 100;
+        } else {
+            s += mvvlva < 0 ? mvvlva : -100;
+        }
     }
-    s += mvvlva;
 
     // Give bonus to queen promotion or knight promotion with check
     const bool givesCheck = pos.isCheckMove(move);
-    if (move.typeOf() == Move::PROMOTION &&
-        ((move.promotionType() == TYPE_QUEEN) ||
-         (givesCheck && move.promotionType() == TYPE_KNIGHT))) {
-        s += PROMOTION_BONUS;
+    if (move.typeOf() == Move::PROMOTION) {
+        if (((move.promotionType() == TYPE_QUEEN) ||
+             (givesCheck && move.promotionType() == TYPE_KNIGHT))) {
+            s += PROMOTION_BONUS;
+        } else {
+            s -= PROMOTION_BONUS; // Promotion to any other pieces should be considered later
+        }
     }
 
     // Penalty for moving to a square controlled by opponent pawns
-    if (aggressor != TYPE_PAWN &&
-        (attacks::pawn(~stm, move.to()) & pos.pieces(TYPE_PAWN, ~stm))) {
+    if (aggressor != TYPE_PAWN && (attacks::pawn(~stm, move.to()) & pos.pieces(TYPE_PAWN, ~stm))) {
         s -= HANGING_PENALTY;
         likelyBlunder = true;
     }
     // Penalty for queens to move to a square attacked by opponent
     if (aggressor == TYPE_QUEEN) {
-        const Bitboard enemy = pos.pieces(TYPE_ROOK, ~stm) |
-                               pos.pieces(TYPE_BISHOP, ~stm) |
+        const Bitboard enemy = pos.pieces(TYPE_ROOK, ~stm) | pos.pieces(TYPE_BISHOP, ~stm) |
                                pos.pieces(TYPE_KNIGHT, ~stm);
-        const Bitboard occ = pos.occ() & (~Bitboard::fromSquare(move.to()));
+        const Bitboard occ   = pos.occ() & (~Bitboard::fromSquare(move.to()));
         const Bitboard range = attacks::queen(move.to(), occ);
         if (enemy & range) {
             s -= QUEEN_HANGING_PENALTY;
@@ -460,29 +463,28 @@ int16_t MovePicker::score(Move move) {
     }
 
     // Bonus for checking the king if this move isn't an obvious blunder
-    if (!likelyBlunder && givesCheck) {
-        s += CHECK_BONUS;
-    }
+    if (!likelyBlunder && givesCheck) { s += CHECK_BONUS; }
 
-    // Statistical bonus, even more if this move is not an obvious blunder
-    const int divider = likelyBlunder ? 80 : 20;
-    const bool queensOnBoard = pos.countPieces(TYPE_QUEEN) == 2;
-    const auto freqTablebase =
-        (pos.fullMoveNumber() <= 12 && queensOnBoard) ? OPENING_MOVE_FREQ
-        : (pos.fullMoveNumber() <= 40)                ? MIDGAME_MOVE_FREQ
-                                                      : nullptr;
-    const auto weightTablebase =
-        (pos.fullMoveNumber() <= 12 && queensOnBoard) ? OPENING_ENTRY_WEIGHT
-        : (pos.fullMoveNumber() <= 40)                ? MIDGAME_ENTRY_WEIGHT
-                                                      : nullptr;
-    if (freqTablebase && weightTablebase) {
-        int tbscore = freqTablebase[(int)aggressor][move.to().index()];
-        int weight = weightTablebase[(int)aggressor];
-        s += tbscore * weight / divider / 1024;
-        if (isCapture) {
-            tbscore = freqTablebase[stm == WHITE ? 12 : 13][move.to().index()];
-            weight = weightTablebase[stm == WHITE ? 12 : 13];
+    // Statistical bonus for no obvious blunder
+    if (!likelyBlunder) {
+        const int  divider       = 50;
+        const bool queensOnBoard = pos.countPieces(TYPE_QUEEN) == 2;
+        const auto freqTablebase = (pos.fullMoveNumber() <= 12 && queensOnBoard) ? OPENING_MOVE_FREQ
+                                   : (pos.fullMoveNumber() <= 40)                ? MIDGAME_MOVE_FREQ
+                                                                                 : nullptr;
+        const auto weightTablebase = (pos.fullMoveNumber() <= 12 && queensOnBoard)
+                                         ? OPENING_ENTRY_WEIGHT
+                                     : (pos.fullMoveNumber() <= 40) ? MIDGAME_ENTRY_WEIGHT
+                                                                    : nullptr;
+        if (freqTablebase && weightTablebase) {
+            int tbscore = freqTablebase[(int) aggressor][move.to().index()];
+            int weight  = weightTablebase[(int) aggressor];
             s += tbscore * weight / divider / 1024;
+            if (isCapture) {
+                tbscore = freqTablebase[stm == WHITE ? 12 : 13][move.to().index()];
+                weight  = weightTablebase[stm == WHITE ? 12 : 13];
+                s += tbscore * weight / divider / 1024;
+            }
         }
     }
 

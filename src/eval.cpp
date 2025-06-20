@@ -150,14 +150,14 @@ private:
                     total += OUTPOST_BONUS[PT == Bishop][supported];
                 }
 
-                if (PT == Bishop) {
-                    // Penalty for having too many pawns on the same color
-                    // square as the bishop
-                    Bitboard pawns   = pos.pieces(TYPE_PAWN, C);
-                    int      counter = 0;
-                    while (pawns) { counter += Square::same_color(Square(pawns.pop()), sq); }
-                    total -= BISHOP_PAWN_PENALTY * counter;
-                }
+                // if (PT == Bishop) {
+                //     // Penalty for having too many pawns on the same color
+                //     // square as the bishop
+                //     Bitboard pawns   = pos.pieces(TYPE_PAWN, C);
+                //     int      counter = 0;
+                //     while (pawns) { counter += Square::same_color(Square(pawns.pop()), sq); }
+                //     total -= BISHOP_PAWN_PENALTY * counter;
+                // }
             }
 
             if (PT == Rook) {
@@ -170,17 +170,21 @@ private:
                         total += OPEN_ROOK_BONUS[0];
                     }
                 }
-                // Penalty for being trapped by the king, and even more
-                // if the king cannot castle
-                if (attackMap.count() <= 3) {
-                    chess::File f        = sq.file();
-                    chess::File kingFile = pos.kingSq(C).file();
-                    if ((f > chess::File::FILE_E && kingFile >= chess::File::FILE_E) ||
-                        (f < chess::File::FILE_D && kingFile <= chess::File::FILE_D)) {
-                        total -= TRAPPED_ROOK_PENALTY;
-                        if (!pos.castlingRights().has(C)) { total -= TRAPPED_ROOK_PENALTY; }
-                    }
-                }
+                // // Penalty for being trapped by the king, and even more
+                // // if the king cannot castle
+                // if (attackMap.count() <= 3) {
+                //     chess::File f        = sq.file();
+                //     chess::File kingFile = pos.kingSq(C).file();
+                //     if ((f > chess::File::FILE_E && kingFile >= chess::File::FILE_E) ||
+                //         (f < chess::File::FILE_D && kingFile <= chess::File::FILE_D)) {
+                //         total -= TRAPPED_ROOK_PENALTY;
+                //         if (!pos.castlingRights().has(C)) { total -= TRAPPED_ROOK_PENALTY; }
+                //     }
+                // }
+            }
+            if (PT == Queen) {
+                Bitboard potentialPinners = pos.pieces(TYPE_ROOK, _C) | pos.pieces(TYPE_BISHOP, _C);
+                if ((bool) (attackMap & potentialPinners)) { total -= WEAK_QUEEN_PENALTY; }
             }
         }
 

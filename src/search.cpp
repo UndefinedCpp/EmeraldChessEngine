@@ -165,7 +165,7 @@ public:
                     window = window * 2;
                     continue;
                 }
-                window = 50;
+                window = stats.depth >= 5 ? 25 : 50;
                 alpha  = score - window;
                 beta   = score + window;
             }
@@ -438,7 +438,6 @@ public:
             const bool isRecapture = prevMove.isValid() && prevMove.to() == m.to();
 
             // SEE Pruning
-            // DEBUG("Try SEE Pruning..." << m);
             if (!inCheck && !isRecapture && !pos.see(m, -6)) { continue; }
 
             pos.makeMove(m);
