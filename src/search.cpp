@@ -15,7 +15,9 @@
 
 #ifdef DEBUG_ENABLED
 #define DEBUG(...)                                                                                 \
-    do { std::cerr << __FILE__ << ":" << __LINE__ << " - " << __VA_ARGS__ << "\n"; } while (0);
+    do {                                                                                           \
+        std::cerr << __FILE__ << ":" << __LINE__ << " - " << __VA_ARGS__ << "\n";                  \
+    } while (0);
 #else
 #define DEBUG(...)
 #endif
@@ -107,7 +109,9 @@ public:
         bestEvalCurr = VALUE_NONE;
         history.clear();
         stats = SearchStatistics();
-        for (size_t i = 0; i < MAX_PLY; ++i) { stack[i] = Scratchpad(); }
+        for (size_t i = 0; i < MAX_PLY; ++i) {
+            stack[i] = Scratchpad();
+        }
         searchInterrupted = false;
 
         this->tc = timeControl;
@@ -131,7 +135,7 @@ public:
 
         Value alpha        = Value::matedIn(0);
         Value beta         = Value::mateIn(0);
-        Value window       = 50;
+        Value window       = 30;
         Value bestEvalRoot = Value::none();
         Move  bestMoveRoot = Move::NO_MOVE;
 
@@ -149,8 +153,12 @@ public:
                 // Output the information about this iteration
                 SearchResult::from(stats, tc, bestEvalCurr, bestMoveRoot.move(), pvTable).print();
             }
-            if (hasReachedHardLimit()) { break; }
-            if (tc.competitionMode && score.isMate()) { break; }
+            if (hasReachedHardLimit()) {
+                break;
+            }
+            if (tc.competitionMode && score.isMate()) {
+                break;
+            }
 
             // Aspiration window
             if (stats.depth >= 3) {
@@ -165,7 +173,7 @@ public:
                     window = window * 2;
                     continue;
                 }
-                window = 50;
+                window = 30;
                 alpha  = score - window;
                 beta   = score + window;
             }
@@ -199,17 +207,25 @@ public:
         stats.nodes++;
 
         // If running out of time, return immediately
-        if (hasReachedHardLimit()) { return alpha; }
+        if (hasReachedHardLimit()) {
+            return alpha;
+        }
         // Go into quiescence search if no more plys are left to search
-        if (depth <= 0) { return qsearch<NT>(alpha, beta, 10, ply); }
+        if (depth <= 0) {
+            return qsearch<NT>(alpha, beta, 10, ply);
+        }
         // Draw detection
-        if (ply > 0 && isDraw()) { return DRAW_VALUE; }
+        if (ply > 0 && isDraw()) {
+            return DRAW_VALUE;
+        }
         /**
          * Mate Distance Pruning.
          */
         alpha = std::max(alpha, Value::matedIn(ply));
         beta  = std::min(beta, Value::mateIn(ply));
-        if (alpha >= beta) { return alpha; }
+        if (alpha >= beta) {
+            return alpha;
+        }
 
         history.killerTable[ply + 1].clear();
 
@@ -242,7 +258,9 @@ public:
 
         // Static evaluation. This guides pruning and reduction.
         Value staticEval = VALUE_NONE;
-        if (!inCheck) { staticEval = evaluate(pos); }
+        if (!inCheck) {
+            staticEval = evaluate(pos);
+        }
         stack[ply].staticEval = staticEval;
 
         const bool improving = isImproving(ply, staticEval);
@@ -315,7 +333,9 @@ public:
             // TODO pruning and reduction goes here
             // Late Move Reduction
             const int lmrMinDepth = isPVNode ? 4 : 3;
-            if (movesSearched > 3 && depth >= lmrMinDepth && !inCheck && cutnode) { depth--; }
+            if (movesSearched > 3 && depth >= lmrMinDepth && !inCheck && cutnode) {
+                depth--;
+            }
 
             // SEE Pruning
             const int seePruneThreshold =
@@ -344,7 +364,9 @@ public:
             pos.unmakeMove(m);
             stack[ply].currentMove = 0;
 
-            if (score > bestValue) { bestValue = score; }
+            if (score > bestValue) {
+                bestValue = score;
+            }
 
             if (score > alpha) {
                 bestMove    = m;
@@ -373,9 +395,13 @@ public:
             }
         }
 
-        if (movesSearched == 0 && inCheck) { return Value::matedIn(ply); }
+        if (movesSearched == 0 && inCheck) {
+            return Value::matedIn(ply);
+        }
 
-        if (!eligibleTTPrune) { tt.store(pos, ttEntryType, depth, bestMove, bestValue); }
+        if (!eligibleTTPrune) {
+            tt.store(pos, ttEntryType, depth, bestMove, bestValue);
+        }
         return bestValue;
     }
 
@@ -396,15 +422,23 @@ public:
             return alpha;
         }
         // Draw detection
-        if (isDraw()) { return DRAW_VALUE; }
+        if (isDraw()) {
+            return DRAW_VALUE;
+        }
         // Return if we are going too deep
-        if (depth <= 0 || ply >= MAX_PLY) { return pos.inCheck() ? DRAW_VALUE : evaluate(pos); }
+        if (depth <= 0 || ply >= MAX_PLY) {
+            return pos.inCheck() ? DRAW_VALUE : evaluate(pos);
+        }
         // Update selective depth
-        if (isPVNode && ply > stats.seldepth) { stats.seldepth = ply; }
+        if (isPVNode && ply > stats.seldepth) {
+            stats.seldepth = ply;
+        }
         // At non-PV nodes we perform early TT cutoff
         if (!isPVNode) {
             TTEntry* entry = tt.probe(pos);
-            if (entry && isInEntryBound(entry, alpha, beta)) { return entry->value; }
+            if (entry && isInEntryBound(entry, alpha, beta)) {
+                return entry->value;
+            }
         }
 
         const bool inCheck = pos.inCheck();
@@ -421,8 +455,12 @@ public:
         Value staticEval = VALUE_NONE;
         if (!inCheck) {
             staticEval = evaluate(pos);
-            if (staticEval >= beta) { return staticEval; }
-            if (staticEval > alpha) { alpha = staticEval; }
+            if (staticEval >= beta) {
+                return staticEval;
+            }
+            if (staticEval > alpha) {
+                alpha = staticEval;
+            }
         }
 
         Value bestValue = alpha;
@@ -430,7 +468,9 @@ public:
         DEBUG("qsearch: " << pos.getFen());
         while (true) {
             Move m = mp.pick();
-            if (!m.isValid()) { break; }
+            if (!m.isValid()) {
+                break;
+            }
             movesSearched++;
 
             // TODO add pruning!
@@ -439,7 +479,9 @@ public:
 
             // SEE Pruning
             // DEBUG("Try SEE Pruning..." << m);
-            if (!inCheck && !isRecapture && !pos.see(m, -6)) { continue; }
+            if (!inCheck && !isRecapture && !pos.see(m, -6)) {
+                continue;
+            }
 
             pos.makeMove(m);
             stack[ply].currentMove = m.move();
@@ -449,14 +491,20 @@ public:
             pos.unmakeMove(m);
             stack[ply].currentMove = 0;
 
-            if (v > bestValue) { bestValue = v; }
+            if (v > bestValue) {
+                bestValue = v;
+            }
             if (v > alpha) {
                 alpha = v;
-                if (v >= beta) { break; }
+                if (v >= beta) {
+                    break;
+                }
             }
         }
 
-        if (movesSearched == 0 && inCheck) { return Value::matedIn(ply); }
+        if (movesSearched == 0 && inCheck) {
+            return Value::matedIn(ply);
+        }
         return bestValue;
     }
 
@@ -464,12 +512,16 @@ public:
 
 private:
     bool hasReachedHardLimit() {
-        if (searchAborted) { return true; }
+        if (searchAborted) {
+            return true;
+        }
         return tc.hitHardLimit(stats.depth, stats.nodes);
     }
 
     bool hasReachedSoftLimit() {
-        if (searchAborted) { return true; }
+        if (searchAborted) {
+            return true;
+        }
         return tc.hitSoftLimit(stats.depth, stats.nodes, history.evalStability);
     }
 
@@ -530,7 +582,9 @@ void think(SearchParams params, const Position pos) {
 }
 
 void stopThinking() {
-    if (searcher != nullptr) { searcher->abortSearch(); }
+    if (searcher != nullptr) {
+        searcher->abortSearch();
+    }
 }
 
 // info depth 10 score cp 66 nodes 4328501 seldepth 17 time 11070 pv d2d4
