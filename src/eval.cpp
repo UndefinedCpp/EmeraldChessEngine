@@ -27,102 +27,113 @@ std::pair<bool, Value> checkGameStatus(Position& board) {
 
 namespace {
 
-class EvalNet {
+class EvaluatorNet {
 private:
-    const nnue::Weight* w_;
-    int16_t             fc1_w[16 * 768];
-    int16_t             fc2_w[16 * 16];
+    const nnue::Weight& w_;
 
 public:
-    EvalNet(const nnue::Weight* weight) : w_(weight) { init(); }
+    EvaluatorNet() : w_(*nnue::weight) {}
 
-    void init() {
-        for (size_t i = 0; i < 16 * 768; ++i) {
-            fc1_w[i] = w_->fc1_weight[i] - 128;
+    int operator()(const int8_t* __restrict__ x1, const int8_t* __restrict__ x2) const {
+        // Set first layer bias
+        int32_t accumulator1[32] = {0};
+        for (int i = 0; i < 32; ++i) {
+            accumulator1[i] = w_.fc1_bias[i]; // auto-vectorizable
         }
-        for (size_t i = 0; i < 16 * 16; ++i) {
-            fc2_w[i] = w_->fc2_weight[i] - 128;
+        int32_t accumulator2[32] = {0};
+        for (int i = 0; i < 32; ++i) {
+            accumulator2[i] = w_.fc1_bias[i];
         }
-    }
-
-    int operator()(const InputVector& x) const {
-        // --- Layer 1 ---
-        int8_t a1[16];
-        for (int i = 0; i < 16; ++i) {
-            int acc = ((int) (w_->fc1_bias[i]) - 128);
-            for (int j = 0; j < 768; ++j) {
-                acc += fc1_w[i * 768 + j] * x[j]; // x[j]=0 or 1
+        // Accumulate with weight
+        for (int i = 0; i < 768; ++i) {
+            for (int j = 0; j < 32; ++j) {
+                accumulator1[j] += w_.fc1_weight[i * 32 + j] * x1[i];
             }
-            acc   = std::max(0, std::min(acc, 127));
-            a1[i] = acc;
         }
-
-        // --- Layer 2 ---
-        int8_t a2[16];
-        for (int i = 0; i < 16; ++i) {
-            int32_t acc = (int32_t(w_->fc2_bias[i]) - 128) << 7;
-            for (int j = 0; j < 16; ++j) {
-                acc += fc2_w[i * 16 + j] * (int) (a1[j]);
+        for (int i = 0; i < 768; ++i) {
+            for (int j = 0; j < 32; ++j) {
+                accumulator2[j] += w_.fc1_weight[i * 32 + j] * x2[i];
             }
-            acc   = std::max(0, std::min(acc, 16256));
-            a2[i] = (acc >> 7);
+        }
+        // Clamp to 0 and 32767
+        for (int i = 0; i < 32; ++i) {
+            accumulator1[i] = std::clamp(accumulator1[i], 0, 32767);
+        }
+        for (int i = 0; i < 32; ++i) {
+            accumulator2[i] = std::clamp(accumulator2[i], 0, 32767);
+        }
+        // Also compute features with square
+        int32_t acc1_sqr[32] = {0};
+        for (int i = 0; i < 32; ++i) {
+            acc1_sqr[i] = accumulator1[i] * accumulator1[i];
+        }
+        for (int i = 0; i < 32; ++i) {
+            acc1_sqr[i] >>= 15;
+        }
+        int32_t acc2_sqr[32] = {0};
+        for (int i = 0; i < 32; ++i) {
+            acc2_sqr[i] = accumulator2[i] * accumulator2[i];
+        }
+        for (int i = 0; i < 32; ++i) {
+            acc2_sqr[i] >>= 15;
         }
 
-        // --- Layer 3 (final) ---
-        int32_t acc = (int32_t(w_->fc3_bias[0]) - 128) << 7;
-        for (int j = 0; j < 16; ++j) {
-            int16_t wq = int16_t(w_->fc3_weight[j]) - 128;
-            acc += wq * (int) (a2[j]);
+        // Values are ready to pass through dense layer.
+        int32_t acc  = w_.fc2_bias; // set bias
+        int32_t temp = 0;
+        for (int i = 0; i < 32; ++i) {
+            temp += accumulator1[i] * w_.fc2_weight[i];
         }
+        acc += temp / 127;
+        temp = 0;
+        for (int i = 0; i < 32; ++i) {
+            temp += acc1_sqr[i] * w_.fc2_weight[i + 32];
+        }
+        acc += temp / 127;
+        temp = 0;
+        for (int i = 0; i < 32; ++i) {
+            temp += accumulator2[i] * w_.fc2_weight[i + 64];
+        }
+        acc += temp / 127;
+        temp = 0;
+        for (int i = 0; i < 32; ++i) {
+            temp += acc2_sqr[i] * w_.fc2_weight[i + 96];
+        }
+        acc += temp / 127;
 
-        return acc >> 7;
+        return acc / 152;
     }
 };
 
-InputVector getInputVectorFor(const Board& pos) {
-    InputVector vec;
-    vec.fill(0);
+void getInputRepresentationFor(const Board& pos, int8_t* v1, int8_t* v2) {
+    int8_t white[768] = {0};
+    int8_t black[768] = {0};
 
     const bool stm_white = (pos.sideToMove() == WHITE);
 
-    auto scan = [&](Bitboard bb, bool flip, int idx) {
+    auto scan = [&](Bitboard bb, bool isWhite, int idx) {
         while (bb) {
-            int sq = bb.pop();
-            if (flip)
-                sq ^= 56;
-            vec[sq * 12 + idx * 2 + (flip ? 1 : 0)] = 1;
+            int sq            = bb.pop();
+            int whiteIndex    = ((int) (!isWhite) * 6 + idx) * 64 + sq;
+            white[whiteIndex] = 1;
+            int blackIndex    = ((int) (isWhite) * 6 + idx) * 64 + sq;
+            black[blackIndex] = 1;
         }
     };
 
-    Bitboard wP = pos.pieces(TYPE_PAWN, WHITE);
-    Bitboard wN = pos.pieces(TYPE_KNIGHT, WHITE);
-    Bitboard wB = pos.pieces(TYPE_BISHOP, WHITE);
-    Bitboard wR = pos.pieces(TYPE_ROOK, WHITE);
-    Bitboard wQ = pos.pieces(TYPE_QUEEN, WHITE);
-    Bitboard wK = pos.pieces(TYPE_KING, WHITE);
+    for (int p_index = 0; p_index < 6; ++p_index) {
+        PieceType pt = (PieceType::underlying) p_index;
+        scan(pos.pieces(pt, WHITE), true, p_index);
+        scan(pos.pieces(pt, BLACK), false, p_index);
+    }
 
-    Bitboard bP = pos.pieces(TYPE_PAWN, BLACK);
-    Bitboard bN = pos.pieces(TYPE_KNIGHT, BLACK);
-    Bitboard bB = pos.pieces(TYPE_BISHOP, BLACK);
-    Bitboard bR = pos.pieces(TYPE_ROOK, BLACK);
-    Bitboard bQ = pos.pieces(TYPE_QUEEN, BLACK);
-    Bitboard bK = pos.pieces(TYPE_KING, BLACK);
-
-    scan(wP, !stm_white, 0);
-    scan(wN, !stm_white, 1);
-    scan(wB, !stm_white, 2);
-    scan(wR, !stm_white, 3);
-    scan(wQ, !stm_white, 4);
-    scan(wK, !stm_white, 5);
-
-    scan(bP, stm_white, 0);
-    scan(bN, stm_white, 1);
-    scan(bB, stm_white, 2);
-    scan(bR, stm_white, 3);
-    scan(bQ, stm_white, 4);
-    scan(bK, stm_white, 5);
-
-    return vec;
+    if (stm_white) {
+        memcpy(v1, white, 768);
+        memcpy(v2, black, 768);
+    } else {
+        memcpy(v2, white, 768);
+        memcpy(v1, black, 768);
+    }
 }
 
 } // namespace
@@ -131,6 +142,9 @@ InputVector getInputVectorFor(const Board& pos) {
  * Main evaluation function.
  */
 Value evaluate(Position& pos) {
-    static EvalNet net(nnue::weight);
-    return net(getInputVectorFor(pos));
+    static EvaluatorNet net;
+    int8_t              vec1[768];
+    int8_t              vec2[768];
+    getInputRepresentationFor(pos, vec1, vec2);
+    return net(vec1, vec2);
 }
