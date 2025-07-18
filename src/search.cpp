@@ -78,6 +78,16 @@ struct SearchResult {
     }
 };
 
+int  LMR_TABLE[256][256];
+void initLMRTable() {
+    for (int i = 0; i < 256; ++i) {
+        for (int j = 0; j < 256; ++j) {
+            float r         = 0.5f + std::log(i) * std::log(j) / 2.5f;
+            LMR_TABLE[i][j] = static_cast<int>(r);
+        }
+    }
+}
+
 /**
  * This class holds the context and algorithm needed to perform a search.
  * Specifically, it implements the negamax algorithm within the iterative
@@ -175,7 +185,7 @@ public:
                     window = window * 2;
                     continue;
                 }
-                window = 30;
+                window = 15;
                 alpha  = score - window;
                 beta   = score + window;
             }
@@ -210,11 +220,7 @@ public:
 
         // If running out of time, return immediately
         if (hasReachedHardLimit()) {
-            return alpha;
-        }
-        // At root node, refresh evaluator
-        if (isRootNode) {
-            updateEvaluatorState(pos);
+            return evaluate(pos);
         }
         // Go into quiescence search if no more plys are left to search
         if (depth <= 0) {
@@ -233,7 +239,7 @@ public:
             return alpha;
         }
 
-        history.killerTable[ply + 1].clear();
+        // history.killerTable[ply + 1].clear();
 
         const uint16_t pvIndex = stack[ply].pvIndex;
         pvTable[pvIndex]       = Move::NO_MOVE;
@@ -245,28 +251,19 @@ public:
          * If a position is reached before and its evaluation is stored in the
          * table, we can potentially reuse the result from previous searches.
          */
-        const TTEntry* ttEntry = tt.probe(pos);
-        const bool     ttHit   = ttEntry != nullptr;
-        // Ensure sufficient depth, and even higher for PV nodes
-        const bool enoughTTDepth = ttHit && (ttEntry->depth >= (depth + (isPVNode ? 2 : 0)));
-        const Move ttMove        = ttHit ? Move(ttEntry->move_code) : Move::NO_MOVE;
+        const TTEntry* ttEntry       = tt.probe(pos);
+        const bool     ttHit         = ttEntry != nullptr;
+        const bool     enoughTTDepth = ttHit && (ttEntry->depth >= depth);
+        const Move     ttMove        = ttHit ? Move(ttEntry->move_code) : Move::NO_MOVE;
 
-        const bool eligibleTTPrune = !isRootNode && ttHit && enoughTTDepth &&
-                                     (ttEntry->value <= alpha || cutnode) &&
+        const bool eligibleTTPrune = !isRootNode && ttHit && enoughTTDepth && !isPVNode &&
                                      isInEntryBound(ttEntry, alpha, beta);
         if (eligibleTTPrune) {
-            if (!isPVNode) { // at non-PV nodes, safely prune the node
-                return ttEntry->value;
-            } else { // but at PV nodes, just reduce the depth
-                depth--;
-            }
+            return ttEntry->value;
         }
 
         // Static evaluation. This guides pruning and reduction.
-        Value staticEval = VALUE_NONE;
-        if (!inCheck) {
-            staticEval = evaluate(pos);
-        }
+        Value staticEval      = inCheck ? VALUE_NONE : evaluate(pos);
         stack[ply].staticEval = staticEval;
 
         const bool improving = isImproving(ply, staticEval);
@@ -281,7 +278,7 @@ public:
              */
             const Value futilityMargin = std::max(depth, 0) * 75;
             if (depth <= 7 && !alpha.isMate() && staticEval >= beta + futilityMargin) {
-                return beta + (staticEval - beta) / 3;
+                return staticEval;
             }
 
             /**
@@ -295,7 +292,7 @@ public:
                 pos.hasNonPawnMaterial() // zugzwang can break things
             ) {
                 stack[ply + 1].nullMoveAllowed = false; // disable NMP on next ply
-                const int reduction            = 2 + depth / 3;
+                const int reduction            = 3 + depth / 4;
 
                 pos.makeNullMove();
                 Value nullMoveValue =
@@ -337,10 +334,20 @@ public:
             movesSearched++;
 
             // TODO pruning and reduction goes here
+            bool fullSearchRequired = false;
+
             // Late Move Reduction
             const int lmrMinDepth = isPVNode ? 4 : 3;
-            if (movesSearched > 3 && depth >= lmrMinDepth && !inCheck && cutnode) {
-                depth--;
+            if (movesSearched >= 3 && depth >= lmrMinDepth && !inCheck && cutnode) {
+                int reduction = LMR_TABLE[depth][movesSearched];
+                if (moveCaptures || moveGivesCheck) { // tactic moves are likely to raise alpha
+                    reduction = reduction / 2;
+                }
+                if (!isPVNode) {
+                    reduction += 1;
+                }
+                reduction = std::clamp(reduction, 1, depth - 1);
+                depth -= reduction;
             }
 
             // SEE Pruning
@@ -381,16 +388,6 @@ public:
                 alpha       = score;
                 ttEntryType = EntryType::EXACT;
 
-                // if (isPVNode && ply > 0) {
-                //     // New PV node, update PV table
-                //     pvTable[pvIndex] = m.move();
-                //     uint16_t n = MAX_PLY - ply - 1;
-                //     uint16_t *target = pvTable + pvIndex + 1;
-                //     uint16_t *source = pvTable + stack[ply + 1].pvIndex;
-                //     while (n-- && (*target++ = *source++))
-                //         ;
-                // }
-
                 if (ply == 0) { // Root node
                     bestEvalCurr = score;
                     bestMoveCurr = m;
@@ -429,13 +426,13 @@ public:
             searchInterrupted = true;
             return alpha;
         }
-        // Draw detection
-        if (isDraw()) {
-            return DRAW_VALUE;
-        }
         // Return if we are going too deep
         if (depth <= 0 || ply >= MAX_PLY) {
             return pos.inCheck() ? DRAW_VALUE : evaluate(pos);
+        }
+        // Draw detection
+        if (isDraw()) {
+            return DRAW_VALUE;
         }
         // Update selective depth
         if (isPVNode && ply > stats.seldepth) {
@@ -503,9 +500,9 @@ public:
 
             if (v > bestValue) {
                 bestValue = v;
-            }
-            if (v > alpha) {
-                alpha = v;
+                if (v > alpha) {
+                    alpha = v;
+                }
                 if (v >= beta) {
                     break;
                 }
@@ -577,6 +574,7 @@ void think(SearchParams params, const Position pos) {
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
     searcher = new Searcher(pos);
+    initLMRTable();
 
     const Color       stm = pos.sideToMove();
     const TimePoint   tp  = TimeControl::now();
