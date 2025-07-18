@@ -23,4 +23,4 @@ During the development, I have referred to and learned from a lot of resources, 
 - Sebastian Lague's [Coding Adventure Bot](https://github.com/SebLague/Chess-Coding-Adventure/tree/Chess-V2-UCI) and his excellent [Youtube videos](https://www.youtube.com/watch?v=_vqlIPDR2TU) on chess programming!
 - [Chess Programming Wiki](https://www.chessprogramming.org/Main_Page/) - an amazing place to learn about every aspects of chess programming!
 - [Disservin](https://github.com/Disservin)'s [chess library](https://github.com/Disservin/chess-library) and his engine testing tool [fastchess](https://github.com/Disservin/fastchess)!
-
+- [Patricia](https://github.com/Adam-Kulju/Patricia) for its position filters
