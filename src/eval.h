@@ -6,10 +6,10 @@
 /**
  * Checks if the game is over and returns the appropriate score.
  */
-std::pair<bool, Value> checkGameStatus(Position &board);
+std::pair<bool, Value> checkGameStatus(Position& board);
 
 // Override `operator<<` for fast printing of Values and Scores
-inline std::ostream &operator<<(std::ostream &os, const Value &s) {
+inline std::ostream& operator<<(std::ostream& os, const Value& s) {
     if (!s.isValid()) {
         os << "(invalid score)";
     } else {
@@ -22,9 +22,16 @@ inline std::ostream &operator<<(std::ostream &os, const Value &s) {
     return os;
 }
 // This is mostly for debugging purposes
-inline std::ostream &operator<<(std::ostream &os, const Score &s) {
-    os << "S(" << (int)s.mg << ", " << (int)s.eg << ")";
+inline std::ostream& operator<<(std::ostream& os, const Score& s) {
+    os << "S(" << (int) s.mg << ", " << (int) s.eg << ")";
     return os;
 }
 
-Value evaluate(Position &pos);
+Value evaluate(Position& pos);
+
+/**
+ * Update evaluator network state.
+ */
+void updateEvaluatorState(const Position& pos, const Move& move);
+void updateEvaluatorState(const Position& pos);
+void updateEvaluatorState();

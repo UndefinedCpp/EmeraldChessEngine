@@ -113,6 +113,7 @@ public:
             stack[i] = Scratchpad();
         }
         searchInterrupted = false;
+        updateEvaluatorState(pos);
 
         this->tc = timeControl;
 
@@ -128,6 +129,7 @@ public:
         // We don't have to waste time searching if there is only one reply in
         // competition
         if (tc.competitionMode && mp.size() == 1) {
+            updateEvaluatorState(pos); // refresh evaluator
             Value staticEval = evaluate(pos);
             result           = SearchResult::from(stats, tc, staticEval, mp.pick(), pvTable);
             return;
@@ -135,7 +137,7 @@ public:
 
         Value alpha        = Value::matedIn(0);
         Value beta         = Value::mateIn(0);
-        Value window       = 30;
+        Value window       = 18;
         Value bestEvalRoot = Value::none();
         Move  bestMoveRoot = Move::NO_MOVE;
 
@@ -209,6 +211,10 @@ public:
         // If running out of time, return immediately
         if (hasReachedHardLimit()) {
             return alpha;
+        }
+        // At root node, refresh evaluator
+        if (isRootNode) {
+            updateEvaluatorState(pos);
         }
         // Go into quiescence search if no more plys are left to search
         if (depth <= 0) {
@@ -345,6 +351,7 @@ public:
                 continue;
             }
 
+            updateEvaluatorState(pos, m);
             pos.makeMove(m);
             stack[ply].currentMove = m.move();
             Value score            = VALUE_NONE;
@@ -362,6 +369,7 @@ public:
             }
 
             pos.unmakeMove(m);
+            updateEvaluatorState();
             stack[ply].currentMove = 0;
 
             if (score > bestValue) {
@@ -483,12 +491,14 @@ public:
                 continue;
             }
 
+            updateEvaluatorState(pos, m);
             pos.makeMove(m);
             stack[ply].currentMove = m.move();
 
             const Value v = -qsearch<NT>(-beta, -alpha, depth - 1, ply + 1);
 
             pos.unmakeMove(m);
+            updateEvaluatorState();
             stack[ply].currentMove = 0;
 
             if (v > bestValue) {

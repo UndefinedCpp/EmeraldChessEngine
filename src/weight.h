@@ -8,7 +8,7 @@ INCBIN(netWeight, "gem.bin");
 
 namespace nnue {
 
-struct Weight {
+struct alignas(32) Weight {
     int16_t fc1_weight[768 * 32];
     int16_t fc1_bias[32];
     int16_t fc2_weight[128];
