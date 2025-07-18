@@ -1,8 +1,11 @@
 #include "eval.h"
-#include "evalconstants.h"
+#include "weight.h"
+#include <array>
 #include <cmath>
 
-#define EVALUATOR_TRACING_ENABLED
+#define INPUT_SIZE 768
+#define FEATURE_SIZE 32
+#define LAYER1_SIZE 128
 
 std::pair<bool, Value> checkGameStatus(Position& board) {
     // Generate legal moves to validate checkmate or stalemate
@@ -19,281 +22,121 @@ std::pair<bool, Value> checkGameStatus(Position& board) {
     ) {
         return {true, DRAW_VALUE};
     }
-    if (board.isRepetition()) { return {true, DRAW_VALUE}; }
+    if (board.isRepetition()) {
+        return {true, DRAW_VALUE};
+    }
     // Game is not over
     return {false, 0};
 }
 
 namespace {
 
-enum EvalColor { White, Black, ColorNum = 2 };
-enum EvalPieceType {
-    Pawn,
-    Knight,
-    Bishop,
-    Rook,
-    Queen,
-    King,
-    PieceTypeNum  = 6,
-    AllPieceTypes = 6,
+struct alignas(32) Accumulator {
+    int white[FEATURE_SIZE];
+    int black[FEATURE_SIZE];
 };
-constexpr Color     COLOR_MAPPING[ColorNum]          = {WHITE, BLACK};
-constexpr PieceType PIECE_TYPE_MAPPING[PieceTypeNum] = {
-    TYPE_PAWN, TYPE_KNIGHT, TYPE_BISHOP, TYPE_ROOK, TYPE_QUEEN, TYPE_KING};
 
-// Shortcut for opponent color
-#define _C (C == White ? Black : White)
+std::pair<size_t, size_t> getFeatureIndices(const Color color, const PieceType pt, Square sq) {
+    const bool   isWhite    = color == WHITE;
+    const size_t whiteIndex = ((int) (!isWhite) * 6 + (int) pt) * 64 + sq.index();
+    const size_t blackIndex = ((int) (isWhite) * 6 + (int) pt) * 64 + sq.flip().index();
+    return {whiteIndex, blackIndex};
+}
 
-/**
- * Evaluator class, implements various evaluation aspects.
- */
-class Evaluator {
-public:
-    Evaluator(Position& pos) : pos(pos) {}
-
+class NNUEState {
 private:
-    Position& pos;
-
-    struct {
-        Score    nonPawnMaterial[ColorNum];
-        Score    psqt[ColorNum];
-        Bitboard attackedBy[ColorNum][PieceTypeNum + 1];
-        int      kingAttackersCount[ColorNum];
-        int      kingAttackersWeight[ColorNum];
-        int      kingAttackSquares[ColorNum];
-        Bitboard kingRing[ColorNum];
-        Bitboard mobilityArea[ColorNum];
-        Bitboard passedPawns[ColorNum];
-    } cache;
-
-    /**
-     * Count material. This initializes the basic material values in
-     * cache, and should always be called before proceeding to any other
-     * evaluation.
-     */
-    template <EvalColor C> void _countMaterial() {
-        for (PieceType pt :
-             {TYPE_PAWN, TYPE_KNIGHT, TYPE_BISHOP, TYPE_ROOK, TYPE_QUEEN, TYPE_KING}) {
-            Bitboard bb = pos.pieces(pt, C);
-            // Count non pawn material
-            if (pt != TYPE_PAWN) { cache.nonPawnMaterial[C] += PIECE_VALUE[pt] * bb.count(); }
-            // Count piece square table score
-            while (bb) {
-                Square  sq    = bb.pop();
-                uint8_t index = (C == White ? sq.index() : sq.flip().index());
-                cache.psqt[C] += PIECE_SQUARE_TABLES[pt][index];
-            }
-        }
-    }
-
-    template <EvalColor C> void _init() {
-        // Initialize attack map
-        cache.attackedBy[C][AllPieceTypes] = 0;
-        for (PieceType pt :
-             {TYPE_PAWN, TYPE_KNIGHT, TYPE_BISHOP, TYPE_ROOK, TYPE_QUEEN, TYPE_KING}) {
-            Bitboard bb             = pos.pieces(pt, C);
-            cache.attackedBy[C][pt] = 0; // init bitboard
-            while (bb) {
-                Square sq = bb.pop();
-                cache.attackedBy[C][pt] |= pos.getAttackMap(sq);
-            }
-            cache.attackedBy[C][AllPieceTypes] |= cache.attackedBy[C][pt];
-        }
-        // Initialize king safety
-        cache.kingAttackersCount[C]  = 0;
-        cache.kingAttackersWeight[C] = 0;
-        cache.kingAttackSquares[C]   = 0;
-        cache.kingRing[C]            = KING_RING_BB[pos.kingSq(C).index()];
-        // Initialize mobility area. Mobility areas are all squares except:
-        // - those attacked by the enemy pawns
-        // - king & queen squares
-        // - unmoved friendly pawns
-        cache.mobilityArea[C] = ~cache.attackedBy[_C][Pawn];
-        cache.mobilityArea[C] &= ~pos.pieces(TYPE_KING, C);
-        cache.mobilityArea[C] &= ~pos.pieces(TYPE_QUEEN, C);
-        cache.mobilityArea[C] &=
-            ~(pos.pieces(TYPE_PAWN, C) &
-              Bitboard(C == White ? chess::Rank::RANK_2 : chess::Rank::RANK_7));
-    }
-
-    /**
-     * Evaluates a type of piece for a given color.
-     */
-    template <EvalColor C, EvalPieceType PT> Score _piece() {
-        Bitboard bb = pos.pieces(PIECE_TYPE_MAPPING[PT], COLOR_MAPPING[C]);
-        Score    total;
-
-        while (bb) {
-            const Square   sq   = bb.pop();
-            const Bitboard sqbb = 1 << sq.index();
-            // Find attacked squares, including x-ray attacks.
-            const Bitboard attackMap =
-                PT == Bishop  ? chess::attacks::bishop(sq, pos.occ() ^ pos.pieces(TYPE_QUEEN))
-                : PT == Queen ? chess::attacks::queen(
-                                    sq, pos.occ() ^ pos.pieces(TYPE_QUEEN) ^ pos.pieces(TYPE_ROOK))
-                              : pos.getAttackMap(sq);
-            // Update king attackers info
-            if (attackMap & cache.kingRing[_C]) {
-                cache.kingAttackersCount[C]++;
-                cache.kingAttackersWeight[C] += KING_ATTACKER_WEIGHT[PT];
-                cache.kingAttackSquares[C] += (attackMap & cache.kingRing[_C]).count();
-            }
-            // Update mobility score
-            int mobility = (attackMap & cache.mobilityArea[C]).count();
-            total += MOBILITY_BONUS[PT][mobility];
-
-            if (PT == Knight || PT == Bishop) {
-                // Bonus for being on a outpost square
-                const Bitboard outpostMask = OUTPOST_SQUARES[C] & (~cache.attackedBy[_C][Pawn]);
-                if (outpostMask & sqbb) {
-                    bool supported = (bool) (cache.attackedBy[C][Pawn] & sqbb);
-                    total += OUTPOST_BONUS[PT == Bishop][supported];
-                }
-
-                // if (PT == Bishop) {
-                //     // Penalty for having too many pawns on the same color
-                //     // square as the bishop
-                //     Bitboard pawns   = pos.pieces(TYPE_PAWN, C);
-                //     int      counter = 0;
-                //     while (pawns) { counter += Square::same_color(Square(pawns.pop()), sq); }
-                //     total -= BISHOP_PAWN_PENALTY * counter;
-                // }
-            }
-
-            if (PT == Rook) {
-                // Bonus for being on a (semi-)open file
-                const Bitboard fileMask = Bitboard(sq.file());
-                if (pos.pieces(TYPE_PAWN, C) & fileMask == 0) {
-                    if (pos.pieces(TYPE_PAWN, _C) & fileMask == 0) { // open
-                        total += OPEN_ROOK_BONUS[1];
-                    } else { // semi-open
-                        total += OPEN_ROOK_BONUS[0];
-                    }
-                }
-                // // Penalty for being trapped by the king, and even more
-                // // if the king cannot castle
-                // if (attackMap.count() <= 3) {
-                //     chess::File f        = sq.file();
-                //     chess::File kingFile = pos.kingSq(C).file();
-                //     if ((f > chess::File::FILE_E && kingFile >= chess::File::FILE_E) ||
-                //         (f < chess::File::FILE_D && kingFile <= chess::File::FILE_D)) {
-                //         total -= TRAPPED_ROOK_PENALTY;
-                //         if (!pos.castlingRights().has(C)) { total -= TRAPPED_ROOK_PENALTY; }
-                //     }
-                // }
-            }
-            if (PT == Queen) {
-                Bitboard potentialPinners = pos.pieces(TYPE_ROOK, _C) | pos.pieces(TYPE_BISHOP, _C);
-                if ((bool) (attackMap & potentialPinners)) { total -= WEAK_QUEEN_PENALTY; }
-            }
-        }
-
-        return total;
-    }
-
-    template <EvalColor C> Score _king() {
-        int kingDanger = cache.kingAttackersCount[C] * cache.kingAttackersWeight[C] +
-                         20 * cache.kingAttackSquares[C];
-
-        Score total = Score(kingDanger * kingDanger / 6144, kingDanger / 24);
-        return ~total;
-    }
-
-    /**
-     * Evaluate pawn structures for a given color.
-     */
-    template <EvalColor C> Score _pawns() {
-        const Bitboard ours   = pos.pieces(TYPE_PAWN, C);
-        const Bitboard theirs = pos.pieces(TYPE_PAWN, _C);
-        Bitboard       pawns  = pos.pieces(TYPE_PAWN, C);
-        Score          total;
-
-        cache.passedPawns[C].clear();
-
-        while (pawns) {
-            Square sq = pawns.pop();
-
-            // Get properties of the pawn
-            const Bitboard neighbors = ours & NEIGHBOR_FILES_BB[(int) sq.file()];
-            const Bitboard stoppers  = theirs & PAWN_STOPPER_MASK[C == Black][sq.index()];
-            const Bitboard phalanx   = neighbors & sq.rank().bb();
-            const Bitboard supported = ours & chess::attacks::pawn(_C, sq);
-            const Bitboard doubled =
-                ours & (C == White ? (sq.rank().bb() << 8) : (sq.rank().bb() >> 8));
-            // Punish isolated pawns
-            if (!neighbors) { total -= ISOLATED_PAWN_PENALTY; }
-            // Punish doubled and unspported pawns
-            if (doubled && !supported) { total -= DOUBLED_PAWN_PENALTY; }
-
-            // Cache passed pawns so we can evaluate them later
-            if (!stoppers && !doubled) { cache.passedPawns[C].set(sq.index()); }
-        }
-
-        return total;
-    }
-
-    /**
-     * Score passed pawns
-     */
-    template <EvalColor C> Score _passed() {
-        Bitboard b = cache.passedPawns[C];
-        Score    total;
-        while (b) {
-            Square sq       = b.pop();
-            int    distance = C == White ? (7 - sq.rank()) : ((int) sq.rank());
-            total += PASSED_PAWN_BONUS[distance];
-        }
-        return total;
-    }
-
-    /**
-     * Estimate game phase from material. This must be called after
-     * `_check_material`.
-     */
-    int _phase() {
-        int           m             = (cache.nonPawnMaterial[0] + cache.nonPawnMaterial[1]).mg;
-        constexpr int ENDGAME_LIMIT = 1600;
-        constexpr int MIDGAME_LIMIT = 7700;
-        m                           = std::clamp(m, ENDGAME_LIMIT, MIDGAME_LIMIT);
-        return ((m - ENDGAME_LIMIT) * ALL_GAME_PHASES) / (MIDGAME_LIMIT - ENDGAME_LIMIT);
-    }
+    std::vector<Accumulator> accumulatorStack;
+    const nnue::Weight&      w;
 
 public:
-    Value operator()() {
-        // First, check material and cache the results
-        _countMaterial<White>();
-        _countMaterial<Black>();
-        Score total = cache.nonPawnMaterial[White] - cache.nonPawnMaterial[Black];
-        total += cache.psqt[White] - cache.psqt[Black];
-        total += PIECE_VALUE[Pawn] *
-                 (pos.countPieces(TYPE_PAWN, WHITE) - pos.countPieces(TYPE_PAWN, BLACK));
-        // Initialize
-        _init<White>();
-        _init<Black>();
-        // Evaluate different aspects of the position
-        total += _piece<White, Knight>() - _piece<Black, Knight>();
-        total += _piece<White, Bishop>() - _piece<Black, Bishop>();
-        total += _piece<White, Rook>() - _piece<Black, Rook>();
-        total += _piece<White, Queen>() - _piece<Black, Queen>();
-        total += _pawns<White>() - _pawns<Black>();
-        total += _passed<White>() - _passed<Black>();
+    inline Accumulator& curr() { return accumulatorStack.back(); }
 
-        total += _king<White>() - _king<Black>();
+public:
+    NNUEState() : w(*nnue::weight) {}
 
-        int   phase = _phase();
-        Value v     = total.fuse(phase);
+    void push() {
+        Accumulator copy = curr();
+        accumulatorStack.push_back(copy);
+    }
+    void pop() { accumulatorStack.pop_back(); }
 
-        if (pos.sideToMove() == BLACK) {
-            v = ~v; // flip the score so it is always POV
+    void reset(const Position& pos) {
+        // Create a new accumulator
+        Accumulator accum;
+        // Initialize with bias
+        for (int i = 0; i < FEATURE_SIZE; ++i) {
+            accum.white[i] = w.fc1_bias[i];
+            accum.black[i] = w.fc1_bias[i];
         }
-        // Give a tempo bonus to the side to move
-        v += TEMPO_BONUS;
+        // Clear the stack and push the accumulator
+        accumulatorStack.clear();
+        accumulatorStack.push_back(std::move(accum));
+        // Call the update functions
+        Bitboard occ = pos.occ();
+        while (occ) {
+            Square sq = occ.pop();
+            Piece  p  = pos.at(sq);
+            update<true>(p, sq);
+        }
+    }
 
-        return v;
+    template <bool activate> void update(const Piece piece, const Square square) {
+        update<activate>(piece.color(), piece.type(), square);
+    }
+
+    template <bool activate> void update(const Color color, const PieceType pt, const Square sq) {
+        const auto [wi, bi]      = getFeatureIndices(color, pt, sq);
+        constexpr int multiplier = (activate ? 1 : -1);
+        for (int i = 0; i < FEATURE_SIZE; ++i) {
+            curr().white[i] += w.fc1_weight[wi * FEATURE_SIZE + i] * multiplier;
+        }
+        for (int i = 0; i < FEATURE_SIZE; ++i) {
+            curr().black[i] += w.fc1_weight[bi * FEATURE_SIZE + i] * multiplier;
+        }
+    }
+
+    int evaluate(const Color color) {
+        const int* input1 = ((color == WHITE) ? curr().white : curr().black);
+        const int* input2 = ((color == WHITE) ? curr().black : curr().white);
+        // Clipped ReLU activation
+        int v1[FEATURE_SIZE], v2[FEATURE_SIZE];
+        for (int i = 0; i < 32; ++i) {
+            v1[i] = std::clamp(input1[i], 0, 32767);
+            v2[i] = std::clamp(input2[i], 0, 32767);
+        }
+        // Clipped square activation
+        int v1s[FEATURE_SIZE], v2s[FEATURE_SIZE];
+        for (int i = 0; i < 32; ++i) {
+            v1s[i] = v1[i] * v1[i];
+            v2s[i] = v2[i] * v2[i];
+        }
+        for (int i = 0; i < 32; ++i) {
+            v1s[i] >>= 15;
+            v2s[i] >>= 15;
+        }
+        // Pass through second layer
+        int temp[4] = {0};
+        for (int i = 0; i < 32; ++i) {
+            temp[0] += v1[i] * w.fc2_weight[i];
+        }
+        for (int i = 0; i < 32; ++i) {
+            temp[1] += v1s[i] * w.fc2_weight[i + FEATURE_SIZE];
+        }
+        for (int i = 0; i < 32; ++i) {
+            temp[2] += v2[i] * w.fc2_weight[i + FEATURE_SIZE * 2];
+        }
+        for (int i = 0; i < 32; ++i) {
+            temp[3] += v2s[i] * w.fc2_weight[i + FEATURE_SIZE * 3];
+        }
+        // Accumulate
+        int y = w.fc2_bias + temp[0] / 127 + temp[1] / 127 + temp[2] / 127 + temp[3] / 127;
+        y     = y / 152;
+        return y;
     }
 };
 
-#undef _C
+// global instance
+NNUEState gNNUE;
 
 } // namespace
 
@@ -301,17 +144,43 @@ public:
  * Main evaluation function.
  */
 Value evaluate(Position& pos) {
-    return Evaluator(pos)();
+    gNNUE.reset(pos);
+    return gNNUE.evaluate(pos.sideToMove());
 }
 
 /**
- * info depth 2 score cp 25 nodes 118 seldepth 2 time 3 pv g1f3
-info depth 3 score cp 85 nodes 660 seldepth 4 time 7 pv g1f3
-info depth 4 score cp 36 nodes 1802 seldepth 5 time 14 pv g1f3
-info depth 5 score cp 86 nodes 2671 seldepth 11 time 21 pv d2d4
-info depth 5 score cp 90 nodes 8213 seldepth 11 time 38 pv d2d4
-info depth 6 score cp 55 nodes 17236 seldepth 15 time 57 pv d2d4
-info depth 7 score cp 65 nodes 55653 seldepth 16 time 130 pv d2d4
-info depth 8 score cp 57 nodes 145371 seldepth 17 time 271 pv d2d4
-info depth 9 score cp 70 nodes 347627 seldepth 18 time 613 pv d2d4
+ * Update evaluator state. This tells the net to incrementally
+ * update since you make some move.
+ */
+void updateEvaluatorState(const Position& pos, const Move& move) {
+    // const Piece pFrom = pos.at(move.from());
+    // const Square sFrom = move.from();
+    // const Piece pTo = pos.at(move.to());
+    // const Square sTo = move.to();
+}
+
+/**
+ * This tells the net to refresh all accumulators.
+ */
+void updateEvaluatorState(const Position& pos) {
+    // gNNUE.reset(pos);
+}
+
+/**
+ * This tells the net that you have undone a move.
+ */
+void updateEvaluatorState() {
+    // gNNUE.pop();
+}
+
+/**
+ * go depth 8
+info string tc 0 0
+info depth 1 score cp 32 nodes 21 seldepth 1 time 7 pv d2d4
+info depth 2 score cp 39 nodes 78 seldepth 2 time 10 pv d2d4
+info depth 3 score cp 21 nodes 693 seldepth 8 time 15 pv e2e4
+info depth 4 score cp 35 nodes 2027 seldepth 8 time 20 pv d2d4
+info depth 5 score cp 37 nodes 9006 seldepth 10 time 46 pv d2d4
+info depth 6 score cp 40 nodes 22119 seldepth 15 time 125 pv d2d4
+info depth 7 score cp 29 nodes 68574 seldepth 15 time 262 pv d2d4
  */

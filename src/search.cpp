@@ -15,7 +15,9 @@
 
 #ifdef DEBUG_ENABLED
 #define DEBUG(...)                                                                                 \
-    do { std::cerr << __FILE__ << ":" << __LINE__ << " - " << __VA_ARGS__ << "\n"; } while (0);
+    do {                                                                                           \
+        std::cerr << __FILE__ << ":" << __LINE__ << " - " << __VA_ARGS__ << "\n";                  \
+    } while (0);
 #else
 #define DEBUG(...)
 #endif
@@ -76,6 +78,16 @@ struct SearchResult {
     }
 };
 
+int  LMR_TABLE[256][256];
+void initLMRTable() {
+    for (int i = 0; i < 256; ++i) {
+        for (int j = 0; j < 256; ++j) {
+            float r         = 0.5f + std::log(i) * std::log(j) / 2.5f;
+            LMR_TABLE[i][j] = static_cast<int>(r);
+        }
+    }
+}
+
 /**
  * This class holds the context and algorithm needed to perform a search.
  * Specifically, it implements the negamax algorithm within the iterative
@@ -107,8 +119,11 @@ public:
         bestEvalCurr = VALUE_NONE;
         history.clear();
         stats = SearchStatistics();
-        for (size_t i = 0; i < MAX_PLY; ++i) { stack[i] = Scratchpad(); }
+        for (size_t i = 0; i < MAX_PLY; ++i) {
+            stack[i] = Scratchpad();
+        }
         searchInterrupted = false;
+        updateEvaluatorState(pos);
 
         this->tc = timeControl;
 
@@ -124,6 +139,7 @@ public:
         // We don't have to waste time searching if there is only one reply in
         // competition
         if (tc.competitionMode && mp.size() == 1) {
+            updateEvaluatorState(pos); // refresh evaluator
             Value staticEval = evaluate(pos);
             result           = SearchResult::from(stats, tc, staticEval, mp.pick(), pvTable);
             return;
@@ -131,7 +147,7 @@ public:
 
         Value alpha        = Value::matedIn(0);
         Value beta         = Value::mateIn(0);
-        Value window       = 50;
+        Value window       = 18;
         Value bestEvalRoot = Value::none();
         Move  bestMoveRoot = Move::NO_MOVE;
 
@@ -149,8 +165,12 @@ public:
                 // Output the information about this iteration
                 SearchResult::from(stats, tc, bestEvalCurr, bestMoveRoot.move(), pvTable).print();
             }
-            if (hasReachedHardLimit()) { break; }
-            if (tc.competitionMode && score.isMate()) { break; }
+            if (hasReachedHardLimit()) {
+                break;
+            }
+            if (tc.competitionMode && score.isMate()) {
+                break;
+            }
 
             // Aspiration window
             if (stats.depth >= 3) {
@@ -165,7 +185,7 @@ public:
                     window = window * 2;
                     continue;
                 }
-                window = stats.depth >= 5 ? 25 : 50;
+                window = 15;
                 alpha  = score - window;
                 beta   = score + window;
             }
@@ -199,19 +219,27 @@ public:
         stats.nodes++;
 
         // If running out of time, return immediately
-        if (hasReachedHardLimit()) { return alpha; }
+        if (hasReachedHardLimit()) {
+            return evaluate(pos);
+        }
         // Go into quiescence search if no more plys are left to search
-        if (depth <= 0) { return qsearch<NT>(alpha, beta, 10, ply); }
+        if (depth <= 0) {
+            return qsearch<NT>(alpha, beta, 10, ply);
+        }
         // Draw detection
-        if (ply > 0 && isDraw()) { return DRAW_VALUE; }
+        if (ply > 0 && isDraw()) {
+            return DRAW_VALUE;
+        }
         /**
          * Mate Distance Pruning.
          */
         alpha = std::max(alpha, Value::matedIn(ply));
         beta  = std::min(beta, Value::mateIn(ply));
-        if (alpha >= beta) { return alpha; }
+        if (alpha >= beta) {
+            return alpha;
+        }
 
-        history.killerTable[ply + 1].clear();
+        // history.killerTable[ply + 1].clear();
 
         const uint16_t pvIndex = stack[ply].pvIndex;
         pvTable[pvIndex]       = Move::NO_MOVE;
@@ -223,26 +251,19 @@ public:
          * If a position is reached before and its evaluation is stored in the
          * table, we can potentially reuse the result from previous searches.
          */
-        const TTEntry* ttEntry = tt.probe(pos);
-        const bool     ttHit   = ttEntry != nullptr;
-        // Ensure sufficient depth, and even higher for PV nodes
-        const bool enoughTTDepth = ttHit && (ttEntry->depth >= (depth + (isPVNode ? 2 : 0)));
-        const Move ttMove        = ttHit ? Move(ttEntry->move_code) : Move::NO_MOVE;
+        const TTEntry* ttEntry       = tt.probe(pos);
+        const bool     ttHit         = ttEntry != nullptr;
+        const bool     enoughTTDepth = ttHit && (ttEntry->depth >= depth);
+        const Move     ttMove        = ttHit ? Move(ttEntry->move_code) : Move::NO_MOVE;
 
-        const bool eligibleTTPrune = !isRootNode && ttHit && enoughTTDepth &&
-                                     (ttEntry->value <= alpha || cutnode) &&
+        const bool eligibleTTPrune = !isRootNode && ttHit && enoughTTDepth && !isPVNode &&
                                      isInEntryBound(ttEntry, alpha, beta);
         if (eligibleTTPrune) {
-            if (!isPVNode) { // at non-PV nodes, safely prune the node
-                return ttEntry->value;
-            } else { // but at PV nodes, just reduce the depth
-                depth--;
-            }
+            return ttEntry->value;
         }
 
         // Static evaluation. This guides pruning and reduction.
-        Value staticEval = VALUE_NONE;
-        if (!inCheck) { staticEval = evaluate(pos); }
+        Value staticEval      = inCheck ? VALUE_NONE : evaluate(pos);
         stack[ply].staticEval = staticEval;
 
         const bool improving = isImproving(ply, staticEval);
@@ -257,7 +278,7 @@ public:
              */
             const Value futilityMargin = std::max(depth, 0) * 75;
             if (depth <= 7 && !alpha.isMate() && staticEval >= beta + futilityMargin) {
-                return beta + (staticEval - beta) / 3;
+                return staticEval;
             }
 
             /**
@@ -271,7 +292,7 @@ public:
                 pos.hasNonPawnMaterial() // zugzwang can break things
             ) {
                 stack[ply + 1].nullMoveAllowed = false; // disable NMP on next ply
-                const int reduction            = 2 + depth / 3;
+                const int reduction            = 3 + depth / 4;
 
                 pos.makeNullMove();
                 Value nullMoveValue =
@@ -313,9 +334,21 @@ public:
             movesSearched++;
 
             // TODO pruning and reduction goes here
+            bool fullSearchRequired = false;
+
             // Late Move Reduction
             const int lmrMinDepth = isPVNode ? 4 : 3;
-            if (movesSearched > 3 && depth >= lmrMinDepth && !inCheck && cutnode) { depth--; }
+            if (movesSearched >= 3 && depth >= lmrMinDepth && !inCheck && cutnode) {
+                int reduction = LMR_TABLE[depth][movesSearched];
+                if (moveCaptures || moveGivesCheck) { // tactic moves are likely to raise alpha
+                    reduction = reduction / 2;
+                }
+                if (!isPVNode) {
+                    reduction += 1;
+                }
+                reduction = std::clamp(reduction, 1, depth - 1);
+                depth -= reduction;
+            }
 
             // SEE Pruning
             const int seePruneThreshold =
@@ -325,6 +358,7 @@ public:
                 continue;
             }
 
+            updateEvaluatorState(pos, m);
             pos.makeMove(m);
             stack[ply].currentMove = m.move();
             Value score            = VALUE_NONE;
@@ -342,24 +376,17 @@ public:
             }
 
             pos.unmakeMove(m);
+            updateEvaluatorState();
             stack[ply].currentMove = 0;
 
-            if (score > bestValue) { bestValue = score; }
+            if (score > bestValue) {
+                bestValue = score;
+            }
 
             if (score > alpha) {
                 bestMove    = m;
                 alpha       = score;
                 ttEntryType = EntryType::EXACT;
-
-                // if (isPVNode && ply > 0) {
-                //     // New PV node, update PV table
-                //     pvTable[pvIndex] = m.move();
-                //     uint16_t n = MAX_PLY - ply - 1;
-                //     uint16_t *target = pvTable + pvIndex + 1;
-                //     uint16_t *source = pvTable + stack[ply + 1].pvIndex;
-                //     while (n-- && (*target++ = *source++))
-                //         ;
-                // }
 
                 if (ply == 0) { // Root node
                     bestEvalCurr = score;
@@ -373,9 +400,13 @@ public:
             }
         }
 
-        if (movesSearched == 0 && inCheck) { return Value::matedIn(ply); }
+        if (movesSearched == 0 && inCheck) {
+            return Value::matedIn(ply);
+        }
 
-        if (!eligibleTTPrune) { tt.store(pos, ttEntryType, depth, bestMove, bestValue); }
+        if (!eligibleTTPrune) {
+            tt.store(pos, ttEntryType, depth, bestMove, bestValue);
+        }
         return bestValue;
     }
 
@@ -395,16 +426,24 @@ public:
             searchInterrupted = true;
             return alpha;
         }
-        // Draw detection
-        if (isDraw()) { return DRAW_VALUE; }
         // Return if we are going too deep
-        if (depth <= 0 || ply >= MAX_PLY) { return pos.inCheck() ? DRAW_VALUE : evaluate(pos); }
+        if (depth <= 0 || ply >= MAX_PLY) {
+            return pos.inCheck() ? DRAW_VALUE : evaluate(pos);
+        }
+        // Draw detection
+        if (isDraw()) {
+            return DRAW_VALUE;
+        }
         // Update selective depth
-        if (isPVNode && ply > stats.seldepth) { stats.seldepth = ply; }
+        if (isPVNode && ply > stats.seldepth) {
+            stats.seldepth = ply;
+        }
         // At non-PV nodes we perform early TT cutoff
         if (!isPVNode) {
             TTEntry* entry = tt.probe(pos);
-            if (entry && isInEntryBound(entry, alpha, beta)) { return entry->value; }
+            if (entry && isInEntryBound(entry, alpha, beta)) {
+                return entry->value;
+            }
         }
 
         const bool inCheck = pos.inCheck();
@@ -421,8 +460,12 @@ public:
         Value staticEval = VALUE_NONE;
         if (!inCheck) {
             staticEval = evaluate(pos);
-            if (staticEval >= beta) { return staticEval; }
-            if (staticEval > alpha) { alpha = staticEval; }
+            if (staticEval >= beta) {
+                return staticEval;
+            }
+            if (staticEval > alpha) {
+                alpha = staticEval;
+            }
         }
 
         Value bestValue = alpha;
@@ -430,7 +473,9 @@ public:
         DEBUG("qsearch: " << pos.getFen());
         while (true) {
             Move m = mp.pick();
-            if (!m.isValid()) { break; }
+            if (!m.isValid()) {
+                break;
+            }
             movesSearched++;
 
             // TODO add pruning!
@@ -438,24 +483,35 @@ public:
             const bool isRecapture = prevMove.isValid() && prevMove.to() == m.to();
 
             // SEE Pruning
-            if (!inCheck && !isRecapture && !pos.see(m, -6)) { continue; }
+            // DEBUG("Try SEE Pruning..." << m);
+            if (!inCheck && !isRecapture && !pos.see(m, -6)) {
+                continue;
+            }
 
+            updateEvaluatorState(pos, m);
             pos.makeMove(m);
             stack[ply].currentMove = m.move();
 
             const Value v = -qsearch<NT>(-beta, -alpha, depth - 1, ply + 1);
 
             pos.unmakeMove(m);
+            updateEvaluatorState();
             stack[ply].currentMove = 0;
 
-            if (v > bestValue) { bestValue = v; }
-            if (v > alpha) {
-                alpha = v;
-                if (v >= beta) { break; }
+            if (v > bestValue) {
+                bestValue = v;
+                if (v > alpha) {
+                    alpha = v;
+                }
+                if (v >= beta) {
+                    break;
+                }
             }
         }
 
-        if (movesSearched == 0 && inCheck) { return Value::matedIn(ply); }
+        if (movesSearched == 0 && inCheck) {
+            return Value::matedIn(ply);
+        }
         return bestValue;
     }
 
@@ -463,12 +519,16 @@ public:
 
 private:
     bool hasReachedHardLimit() {
-        if (searchAborted) { return true; }
+        if (searchAborted) {
+            return true;
+        }
         return tc.hitHardLimit(stats.depth, stats.nodes);
     }
 
     bool hasReachedSoftLimit() {
-        if (searchAborted) { return true; }
+        if (searchAborted) {
+            return true;
+        }
         return tc.hitSoftLimit(stats.depth, stats.nodes, history.evalStability);
     }
 
@@ -514,6 +574,7 @@ void think(SearchParams params, const Position pos) {
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
     searcher = new Searcher(pos);
+    initLMRTable();
 
     const Color       stm = pos.sideToMove();
     const TimePoint   tp  = TimeControl::now();
@@ -529,7 +590,9 @@ void think(SearchParams params, const Position pos) {
 }
 
 void stopThinking() {
-    if (searcher != nullptr) { searcher->abortSearch(); }
+    if (searcher != nullptr) {
+        searcher->abortSearch();
+    }
 }
 
 // info depth 10 score cp 66 nodes 4328501 seldepth 17 time 11070 pv d2d4

@@ -1,0 +1,284 @@
+{
+    "resign": {
+        "move_count": 1,
+        "score": 0,
+        "twosided": false,
+        "enabled": false
+    },
+    "draw": {
+        "move_number": 40,
+        "move_count": 3,
+        "score": 20,
+        "enabled": true
+    },
+    "maxmoves": {
+        "move_count": 150,
+        "enabled": true
+    },
+    "opening": {
+        "file": "./openingbook/8moves_v3.pgn",
+        "format": 1,
+        "order": 0,
+        "plies": -1,
+        "start": 1
+    },
+    "pgn": {
+        "event_name": "test",
+        "site": "?",
+        "file": "enginetest_12_32_31.pgn",
+        "notation": 0,
+        "track_nodes": false,
+        "track_seldepth": false,
+        "track_nps": false,
+        "track_hashfull": false,
+        "track_tbhits": false,
+        "track_timeleft": false,
+        "min": false
+    },
+    "epd": {
+        "file": ""
+    },
+    "sprt": {
+        "alpha": 0.0,
+        "beta": 0.0,
+        "elo0": 0.0,
+        "elo1": 0.0,
+        "model": "normalized",
+        "enabled": false
+    },
+    "config_name": "",
+    "output": 0,
+    "seed": 13538336756609105525,
+    "variant": 0,
+    "ratinginterval": 10,
+    "scoreinterval": 1,
+    "wait": 0,
+    "autosaveinterval": 1,
+    "games": 2,
+    "rounds": 15,
+    "concurrency": 4,
+    "force_concurrency": false,
+    "recover": true,
+    "noswap": false,
+    "reverse": false,
+    "report_penta": true,
+    "affinity": false,
+    "log": {
+        "file": "debug.log",
+        "level": 3,
+        "compress": false,
+        "realtime": true
+    },
+    "engines": [
+        {
+            "name": "engine",
+            "dir": "",
+            "cmd": "./build/engine.exe",
+            "args": "",
+            "options": [],
+            "limit": {
+                "tc": {
+                    "increment": 100,
+                    "fixed_time": 0,
+                    "time": 10000,
+                    "moves": 0,
+                    "timemargin": 0
+                },
+                "nodes": 0,
+                "plies": 0
+            },
+            "variant": 0
+        },
+        {
+            "name": "engine.0.3.0.core-avx2",
+            "dir": "",
+            "cmd": "./build/engine.0.3.0.core-avx2.exe",
+            "args": "",
+            "options": [],
+            "limit": {
+                "tc": {
+                    "increment": 100,
+                    "fixed_time": 0,
+                    "time": 10000,
+                    "moves": 0,
+                    "timemargin": 0
+                },
+                "nodes": 0,
+                "plies": 0
+            },
+            "variant": 0
+        },
+        {
+            "name": "neuromancer",
+            "dir": "",
+            "cmd": "./build/neuromancer.exe",
+            "args": "",
+            "options": [],
+            "limit": {
+                "tc": {
+                    "increment": 100,
+                    "fixed_time": 0,
+                    "time": 10000,
+                    "moves": 0,
+                    "timemargin": 0
+                },
+                "nodes": 0,
+                "plies": 0
+            },
+            "variant": 0
+        },
+        {
+            "name": "kelp",
+            "dir": "",
+            "cmd": "./build/kelp.exe",
+            "args": "",
+            "options": [],
+            "limit": {
+                "tc": {
+                    "increment": 100,
+                    "fixed_time": 0,
+                    "time": 10000,
+                    "moves": 0,
+                    "timemargin": 0
+                },
+                "nodes": 0,
+                "plies": 0
+            },
+            "variant": 0
+        }
+    ],
+    "stats": {
+        "kelp vs neuromancer": {
+            "wins": 6,
+            "losses": 13,
+            "draws": 3,
+            "penta_WW": 1,
+            "penta_WD": 2,
+            "penta_WL": 2,
+            "penta_DD": 0,
+            "penta_LD": 1,
+            "penta_LL": 5
+        },
+        "kelp vs engine.0.3.0.core-avx2": {
+            "wins": 9,
+            "losses": 5,
+            "draws": 2,
+            "penta_WW": 3,
+            "penta_WD": 0,
+            "penta_WL": 3,
+            "penta_DD": 0,
+            "penta_LD": 2,
+            "penta_LL": 0
+        },
+        "neuromancer vs engine.0.3.0.core-avx2": {
+            "wins": 16,
+            "losses": 5,
+            "draws": 1,
+            "penta_WW": 6,
+            "penta_WD": 1,
+            "penta_WL": 3,
+            "penta_DD": 0,
+            "penta_LD": 0,
+            "penta_LL": 1
+        },
+        "neuromancer vs kelp": {
+            "wins": 5,
+            "losses": 3,
+            "draws": 0,
+            "penta_WW": 1,
+            "penta_WD": 0,
+            "penta_WL": 3,
+            "penta_DD": 0,
+            "penta_LD": 0,
+            "penta_LL": 0
+        },
+        "engine.0.3.0.core-avx2 vs kelp": {
+            "wins": 9,
+            "losses": 3,
+            "draws": 2,
+            "penta_WW": 2,
+            "penta_WD": 2,
+            "penta_WL": 3,
+            "penta_DD": 0,
+            "penta_LD": 0,
+            "penta_LL": 0
+        },
+        "engine.0.3.0.core-avx2 vs neuromancer": {
+            "wins": 3,
+            "losses": 5,
+            "draws": 0,
+            "penta_WW": 0,
+            "penta_WD": 0,
+            "penta_WL": 3,
+            "penta_DD": 0,
+            "penta_LD": 0,
+            "penta_LL": 1
+        },
+        "kelp vs engine": {
+            "wins": 5,
+            "losses": 17,
+            "draws": 0,
+            "penta_WW": 1,
+            "penta_WD": 0,
+            "penta_WL": 3,
+            "penta_DD": 0,
+            "penta_LD": 0,
+            "penta_LL": 7
+        },
+        "engine.0.3.0.core-avx2 vs engine": {
+            "wins": 5,
+            "losses": 16,
+            "draws": 7,
+            "penta_WW": 0,
+            "penta_WD": 2,
+            "penta_WL": 3,
+            "penta_DD": 1,
+            "penta_LD": 3,
+            "penta_LL": 5
+        },
+        "engine vs engine.0.3.0.core-avx2": {
+            "wins": 1,
+            "losses": 1,
+            "draws": 0,
+            "penta_WW": 0,
+            "penta_WD": 0,
+            "penta_WL": 1,
+            "penta_DD": 0,
+            "penta_LD": 0,
+            "penta_LL": 0
+        },
+        "neuromancer vs engine": {
+            "wins": 8,
+            "losses": 4,
+            "draws": 0,
+            "penta_WW": 2,
+            "penta_WD": 0,
+            "penta_WL": 4,
+            "penta_DD": 0,
+            "penta_LD": 0,
+            "penta_LL": 0
+        },
+        "engine vs kelp": {
+            "wins": 7,
+            "losses": 1,
+            "draws": 0,
+            "penta_WW": 3,
+            "penta_WD": 0,
+            "penta_WL": 1,
+            "penta_DD": 0,
+            "penta_LD": 0,
+            "penta_LL": 0
+        },
+        "engine vs neuromancer": {
+            "wins": 8,
+            "losses": 8,
+            "draws": 2,
+            "penta_WW": 3,
+            "penta_WD": 1,
+            "penta_WL": 1,
+            "penta_DD": 0,
+            "penta_LD": 1,
+            "penta_LL": 3
+        }
+    }
+}
