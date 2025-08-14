@@ -26,13 +26,13 @@ public:
     /**
      * Get the legal moves in the current position.
      */
-    const Movelist legalMoves() {
+    const Movelist legalMoves() const {
         Movelist moves;
         movegen::legalmoves(moves, *this);
         return moves; // Let RVO take care of this, no need for std::move
     }
 
-    const Movelist generateCaptureMoves() {
+    const Movelist generateCaptureMoves() const {
         Movelist moves;
         movegen::legalmoves<movegen::MoveGenType::CAPTURE>(moves, *this);
         return moves;
@@ -60,14 +60,20 @@ public:
         Color color = piece.color();
         int   type  = static_cast<int>(piece.type());
         switch (type) {
-            case (int) TYPE_PAWN: return chess::attacks::pawn(color, square);
-            case (int) TYPE_KNIGHT: return chess::attacks::knight(square);
-            case (int) TYPE_BISHOP: return chess::attacks::bishop(square, occ());
-            case (int) TYPE_ROOK: return chess::attacks::rook(square, occ());
+            case (int) TYPE_PAWN:
+                return chess::attacks::pawn(color, square);
+            case (int) TYPE_KNIGHT:
+                return chess::attacks::knight(square);
+            case (int) TYPE_BISHOP:
+                return chess::attacks::bishop(square, occ());
+            case (int) TYPE_ROOK:
+                return chess::attacks::rook(square, occ());
             case (int) TYPE_QUEEN:
                 return chess::attacks::bishop(square, occ()) | chess::attacks::rook(square, occ());
-            case (int) TYPE_KING: return chess::attacks::king(square);
-            default: return Bitboard(0ull);
+            case (int) TYPE_KING:
+                return chess::attacks::king(square);
+            default:
+                return Bitboard(0ull);
         }
     }
 
@@ -117,7 +123,9 @@ public:
         }
 
         // Best case fails to beat threshold
-        if (balance < 0) { return false; }
+        if (balance < 0) {
+            return false;
+        }
 
         balance -= SEE_PIECE_VALUE[(int) nextVictim];
         if (balance >= 0) { // Guaranteed to beat the threshold if the balance
@@ -131,7 +139,9 @@ public:
 
         // Suppose that move was actually made
         occupied = occupied ^ Bitboard::fromSquare(from) ^ Bitboard::fromSquare(to);
-        if (moveType == Move::ENPASSANT) { occupied &= ~Bitboard::fromSquare(enpassantSq()); }
+        if (moveType == Move::ENPASSANT) {
+            occupied &= ~Bitboard::fromSquare(enpassantSq());
+        }
 
         // Get all attackers to that square
         Bitboard attackers = attacks::attackers(*this, WHITE, to, occupied) |
@@ -143,13 +153,17 @@ public:
         while (true) {
             // If we have no more attackers, we lose material
             Bitboard myAttackers = attackers & us(color);
-            if (myAttackers.empty()) { break; }
+            if (myAttackers.empty()) {
+                break;
+            }
 
             // Find least valuable attacker
             for (PieceType pt :
                  {TYPE_PAWN, TYPE_KNIGHT, TYPE_BISHOP, TYPE_ROOK, TYPE_QUEEN, TYPE_KING}) {
                 nextVictim = pt;
-                if (attackers & pieces(pt, color)) { break; }
+                if (attackers & pieces(pt, color)) {
+                    break;
+                }
             }
 
             // Remove this attacker from the occupied bitboard
@@ -229,7 +243,9 @@ inline int knight(const Square a, const Square b) {
                          (a == Square::underlying::SQ_A8) || (a == Square::underlying::SQ_H8);
         bool bIsCorner = (b == Square::underlying::SQ_A1) || (b == Square::underlying::SQ_H1) ||
                          (b == Square::underlying::SQ_A8) || (b == Square::underlying::SQ_H8);
-        if (aIsCorner || bIsCorner) { return 4; }
+        if (aIsCorner || bIsCorner) {
+            return 4;
+        }
     }
     int m = std::ceil(std::max(std::max(dx / 2.0, dy / 2.0), (dx + dy) / 3.0));
     return m + ((m + dx + dy) % 2);

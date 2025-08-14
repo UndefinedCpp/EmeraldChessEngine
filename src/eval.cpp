@@ -130,7 +130,7 @@ public:
         }
         // Accumulate
         int y = w.fc2_bias + temp[0] / 127 + temp[1] / 127 + temp[2] / 127 + temp[3] / 127;
-        y     = y / 152;
+        y     = y / 140;
         return y;
     }
 };

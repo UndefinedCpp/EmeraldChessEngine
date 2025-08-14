@@ -8,34 +8,22 @@
 class MovePicker {
 private:
     struct MoveEntry {
-        uint16_t code;
-        int16_t score;
+        uint16_t id;
+        int16_t  score;
 
-        bool operator<(const MoveEntry &other) const {
-            return score < other.score;
-        }
-        Move move() const {
-            return Move(code);
-        }
+        MoveEntry(uint16_t _id, int16_t _s) : id(_id), score(_s) {}
+        inline Move object() const { return Move(id); }
+        inline bool operator<(const MoveEntry& other) { return score < other.score; }
+        inline bool operator>(const MoveEntry& other) { return score > other.score; }
     };
 
-    Position &pos;
-    std::vector<MoveEntry> q;
-    size_t m_size;
-
-    int16_t score(const Move m);
+    std::vector<MoveEntry> moveBuffer;
 
 public:
-    using KillerTbl = SearchHistory::KillerTable;
-    using HistTbl = SearchHistory::HistoryTable;
+    MovePicker(Position& pos, const SearchHistory& history, const Move& ttMove);
+    ~MovePicker();
 
-    MovePicker(Position &pos);
-    void init(KillerTbl *killerTable = nullptr, HistTbl *historyTable = nullptr,
-              Move hashMove = Move::NO_MOVE);
-    void initQuiet(HistTbl *historyTable = nullptr);
-    Move pick();
+    void skipQuiet();
 
-    inline int16_t size() const {
-        return m_size;
-    }
+    Move next();
 };

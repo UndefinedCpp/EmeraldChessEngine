@@ -1,101 +1,113 @@
 import argparse
-import os
-from datetime import datetime
 import subprocess
+import sys
+import os
+import time
 
-# Make sure you have fastchess installed
-if os.path.exists('./fastchess.exe') == False:
-    raise RuntimeError('fastchess required')
-# And opening books exist
-if os.path.exists('./openingbook') == False:
-    raise RuntimeError('opening books required')
+def run_fastchess(cmd_args):
+    print('[INFO] Starting fastchess')
+    print('[INFO]', ' '.join(cmd_args))
+    subprocess.run(cmd_args, check=True)
 
-OPENING_BOOK = './openingbook/8moves_v3.pgn'
-OPENING_BOOK_FORMAT = 'pgn'
-OUTPUT_FILENAME = f'enginetest_{datetime.now().strftime("%H_%M_%S")}.pgn'
+def elo_mode(args):
+    cmd = ["fastchess"]
 
+    for idx, eng in enumerate(args.engines, start=1):
+        name = os.path.splitext(os.path.basename(eng))[0]
+        cmd += ["-engine", f'cmd={eng}', f'name={name}']
 
-parser = argparse.ArgumentParser()
-parser.add_argument('engine_1', type=str)
-parser.add_argument('engine_2', type=str)
-parser.add_argument('--ref-engine', type=str, default=None)
-parser.add_argument('--ref-engine2', type=str, default=None)
-parser.add_argument('--games', '-n', type=int, default=10)
-parser.add_argument('--timecontrol', '-t', type=str, default='10+0.1')
-parser.add_argument('--clear', '-c', action='store_true')
-args = parser.parse_args()
+    cmd += ['-rounds', str(args.num_games), '-repeat', '-each', 'tc=10+0.1']
 
-if args.clear:
-    os.remove('./debug.log')
-    os.remove('./config.json')
-    files = [s for s in os.listdir('.') if (s.startswith('enginetest_'))]
-    for f in files:
-        os.remove(f)
-    exit(0)
+    # Opening book
+    if args.openingbook:
+        cmd += [
+            "-openings",
+            f"file={args.openingbook}",
+            "format=pgn",
+            "order=random"
+        ]
 
-engine_1_name = args.engine_1
-engine_2_name = args.engine_2
-ref_engine = args.ref_engine
-ref_engine2 = args.ref_engine2
-if engine_1_name == engine_2_name:
-    engine_1_name = f'{engine_1_name}_1'
-    engine_2_name = f'{engine_2_name}_2'
+    # Concurrency
+    if args.concurrency:
+        cmd += ['-concurrency', str(args.concurrency)]
 
-if ref_engine is not None:
-    ref_engine_name = ref_engine
-    ref_engine_call = ['-engine', 'cmd=./build/' +
-                       ref_engine+'.exe', 'name='+ref_engine_name]
-else:
-    ref_engine_call = []
+    # Output
+    cmd += [
+        "-pgnout", f'elo_{time.strftime("%Y%m%d-%H%M%S", time.localtime())}.pgn',
+        "-output", "format=fastchess"
+    ]
 
-if ref_engine2 is not None:
-    ref_engine2_name = ref_engine2
-    ref_engine2_call = ['-engine', 'cmd=./build/' +
-                       ref_engine2+'.exe', 'name='+ref_engine2_name]
-else:
-    ref_engine2_call = []
+    run_fastchess(cmd)
 
-command_line = [
-    './fastchess',
-    '-event',   # PGN event head
-    'test',
-    '-games',   # Number of games to play
-    str(args.games),
-    '-variant',  # Play standard chess
-    'standard',
-    '-recover',  # Recover engine in case of crash
-    '-draw',  # Early draw adjundication:
-    'movenumber=40',  # - after 40 moves,
-    'movecount=3',  # - for 3 consecutive moves,
-    'score=20',  # - below 20cp evaluation
-    '-maxmoves',  # draw after 150 moves
-    '150',
-    '-openings',  # specify opening book
-    'file='+OPENING_BOOK,
-    'format='+OPENING_BOOK_FORMAT,
-    'order=random',
-    '-output',  # Output format settings
-    'format=fastchess',
-    '-pgnout',
-    'file='+OUTPUT_FILENAME,
-    '-autosaveinterval',
-    '1',
-    '-engine',  # Set up engine 1
-    'cmd=./build/'+args.engine_1+'.exe',
-    'name='+engine_1_name,
-    '-engine',  # Set up engine 2
-    'cmd=./build/'+args.engine_2+'.exe',
-    'name='+engine_2_name,
-    *ref_engine_call,
-    *ref_engine2_call,
-    '-each',
-    'tc='+args.timecontrol,
-    '-log',
-    'file=debug.log',
-    'level=info',
-    '-concurrency',
-    '4'
-]
+def sprt_mode(args):
+    cmd = ["fastchess"]
 
-ret = subprocess.run(command_line)
-print('return code:', ret.returncode)
+    # Two engines only
+    if len(args.engines) != 2:
+        sys.exit("[ERROR] SPRT mode requires exactly 2 engines.")
+
+    for eng in args.engines:
+        name = os.path.splitext(os.path.basename(eng))[0]
+        cmd += ["-engine", f"cmd={eng}", f"name={name}"]
+
+    cmd += ["-each", "tc=10+0.1"]  # default
+
+    # Opening book
+    if args.openingbook:
+        cmd += [
+            "-openings",
+            f"file={args.openingbook}",
+            "format=pgn",
+            "order=random"
+        ]
+
+    # SPRT parameters
+    cmd += [
+        "-sprt",
+        f"elo0=0",
+        f"elo1={args.elohyp}",
+        "alpha=0.05",
+        "beta=0.05",
+        "model=normalized"
+    ]
+
+    # Concurrency
+    if args.concurrency:
+        cmd += ["-concurrency", str(args.concurrency)]
+
+    # Output
+    cmd += [
+        "-pgnout", f'sprt_{time.strftime("%Y%m%d-%H%M%S", time.localtime())}.pgn',
+        "-output", "format=fastchess"
+    ]
+
+    run_fastchess(cmd)
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Wrapper for Fastchess testing: Elo estimation or SPRT comparison"
+    )
+
+    subparsers = parser.add_subparsers(dest="mode", required=True)
+
+    # Elo mode parser
+    parser_elo = subparsers.add_parser("elo", help="Elo estimation mode")
+    parser_elo.add_argument("-e", "--engines", nargs="+", required=True, help="Engine executables")
+    parser_elo.add_argument("-n", "--num-games", type=int, required=True, help="Games per pairing")
+    parser_elo.add_argument("--openingbook", help="Opening book (PGN format)")
+    parser_elo.add_argument("--concurrency", type=int, help="Number of concurrent games")
+    parser_elo.set_defaults(func=elo_mode)
+
+    # SPRT mode parser
+    parser_sprt = subparsers.add_parser("sprt", help="SPRT comparison mode")
+    parser_sprt.add_argument("-e", "--engines", nargs="+", required=True, help="Two engine executables")
+    parser_sprt.add_argument("--elohyp", type=int, required=True, help="Elo improvement hypothesis (elo1)")
+    parser_sprt.add_argument("--openingbook", help="Opening book (PGN format)")
+    parser_sprt.add_argument("--concurrency", type=int, help="Number of concurrent games")
+    parser_sprt.set_defaults(func=sprt_mode)
+
+    args = parser.parse_args()
+    args.func(args)
+
+if __name__ == "__main__":
+    main()

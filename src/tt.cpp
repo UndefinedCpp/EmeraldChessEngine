@@ -2,18 +2,18 @@
 
 TranspositionTable tt; // real definition here
 
-void TranspositionTable::store(const Position &pos, EntryType type,
-                               int8_t depth, Move move, Value value) {
-    uint64_t key = pos.hash();
+void TranspositionTable::store(
+    const Position& pos, EntryType type, int8_t depth, Move move, Value value) {
+    uint64_t key   = pos.hash();
     uint32_t index = key % size;
-    bool ok = false;
+    bool     ok    = false;
 
-    if (value == MATE_VALUE || value == MATED_VALUE) {
-        std::cerr << "Error at <" << pos.getFen() << ">: " << (int)type << ", "
-                  << (int)depth << ", " << move << ", " << value << " ("
-                  << (int)value << ")" << std::endl;
-        assert(false);
-    }
+    // if (value == MATE_VALUE || value == MATED_VALUE) {
+    //     std::cerr << "Error at <" << pos.getFen() << ">: " << (int)type << ", "
+    //               << (int)depth << ", " << move << ", " << value << " ("
+    //               << (int)value << ")" << std::endl;
+    //     assert(false);
+    // }
 
     // Determine if a position can be stored into the table
     if (!db[index].hasInitialized()) { // uninitialized entry
@@ -35,10 +35,10 @@ void TranspositionTable::store(const Position &pos, EntryType type,
     }
 }
 
-TTEntry *TranspositionTable::probe(const Position &pos) {
-    uint64_t key = pos.hash();
+TTEntry* TranspositionTable::probe(const Position& pos) {
+    uint64_t key   = pos.hash();
     uint32_t index = key % size;
-    TTEntry *ptr = &db[index];
+    TTEntry* ptr   = &db[index];
 
     if (ptr->type == EntryType::NONE) {
         return nullptr; // not found because entry is empty
@@ -50,12 +50,10 @@ TTEntry *TranspositionTable::probe(const Position &pos) {
     return ptr;
 }
 
-std::pair<bool, Value> TranspositionTable::lookupEval(const Position &pos,
-                                                      int8_t depth,
-                                                      int8_t plyFromRoot,
-                                                      Value alpha, Value beta) {
+std::pair<bool, Value> TranspositionTable::lookupEval(
+    const Position& pos, int8_t depth, int8_t plyFromRoot, Value alpha, Value beta) {
     // Lookup entry in the transposition table
-    TTEntry *entry = probe(pos);
+    TTEntry* entry = probe(pos);
     if (!entry) {
         return std::make_pair(false, Value(0));
     }
@@ -66,8 +64,7 @@ std::pair<bool, Value> TranspositionTable::lookupEval(const Position &pos,
     // Correct the score in case it is a mate score
     Value v = entry->value;
     if (v.isMate()) {
-        v = (static_cast<int>(v) > 0) ? (MATE_VALUE - plyFromRoot)
-                                      : (MATED_VALUE + plyFromRoot);
+        v = (static_cast<int>(v) > 0) ? (MATE_VALUE - plyFromRoot) : (MATED_VALUE + plyFromRoot);
     }
     // Return the score
     if (entry->type == EntryType::EXACT) {

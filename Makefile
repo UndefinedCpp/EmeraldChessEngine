@@ -272,30 +272,6 @@ src/uci.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\engine.dir\build.make CMakeFiles/engine.dir/src/uci.cpp.s
 .PHONY : src/uci.cpp.s
 
-src/worker.obj: src/worker.cpp.obj
-.PHONY : src/worker.obj
-
-# target to build an object file
-src/worker.cpp.obj:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles\engine.dir\build.make CMakeFiles/engine.dir/src/worker.cpp.obj
-.PHONY : src/worker.cpp.obj
-
-src/worker.i: src/worker.cpp.i
-.PHONY : src/worker.i
-
-# target to preprocess a source file
-src/worker.cpp.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles\engine.dir\build.make CMakeFiles/engine.dir/src/worker.cpp.i
-.PHONY : src/worker.cpp.i
-
-src/worker.s: src/worker.cpp.s
-.PHONY : src/worker.s
-
-# target to generate assembly for a file
-src/worker.cpp.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles\engine.dir\build.make CMakeFiles/engine.dir/src/worker.cpp.s
-.PHONY : src/worker.cpp.s
-
 # Help Target
 help:
 	@echo The following are some of the valid targets for this Makefile:
@@ -323,9 +299,6 @@ help:
 	@echo ... src/uci.obj
 	@echo ... src/uci.i
 	@echo ... src/uci.s
-	@echo ... src/worker.obj
-	@echo ... src/worker.i
-	@echo ... src/worker.s
 .PHONY : help
 
 

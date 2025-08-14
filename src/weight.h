@@ -4,7 +4,7 @@
 #include <array>
 #include <cstdint>
 
-INCBIN(netWeight, "gem.bin");
+INCBIN(netWeight, "crystal.bin");
 
 namespace nnue {
 
