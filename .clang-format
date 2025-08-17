@@ -28,6 +28,7 @@ BraceWrapping:
     IndentBraces:    false
 BreakBeforeBraces: Attach
 BreakConstructorInitializers: AfterColon
+BreakTemplateDeclarations: Yes
 ColumnLimit:     100
 ConstructorInitializerAllOnOneLineOrOnePerLine: true
 ConstructorInitializerIndentWidth: 4

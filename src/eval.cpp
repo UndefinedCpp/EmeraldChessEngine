@@ -80,11 +80,13 @@ public:
         }
     }
 
-    template <bool activate> void update(const Piece piece, const Square square) {
+    template <bool activate>
+    void update(const Piece piece, const Square square) {
         update<activate>(piece.color(), piece.type(), square);
     }
 
-    template <bool activate> void update(const Color color, const PieceType pt, const Square sq) {
+    template <bool activate>
+    void update(const Color color, const PieceType pt, const Square sq) {
         const auto [wi, bi]      = getFeatureIndices(color, pt, sq);
         constexpr int multiplier = (activate ? 1 : -1);
         for (int i = 0; i < FEATURE_SIZE; ++i) {
@@ -130,7 +132,7 @@ public:
         }
         // Accumulate
         int y = w.fc2_bias + temp[0] / 127 + temp[1] / 127 + temp[2] / 127 + temp[3] / 127;
-        y     = y / 140;
+        y     = y / 170;
         return y;
     }
 };

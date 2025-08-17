@@ -107,6 +107,8 @@ public:
      * This is useful to check if a series of captures is good without
      * explicitly playing the moves. This helps improve move ordering and
      * skipping certain moves in search.
+     *
+     * @returns true if the move wins material after exchange sequence
      */
     bool see(const Move move, int threshold) {
         const Square    from       = move.from();
@@ -193,6 +195,25 @@ public:
         }
 
         return sideToMove() != color;
+    }
+
+    /**
+     * Check for draw by repetition, insufficient material, or fifty-move rule.
+     */
+    bool isDraw() const { //
+        return isHalfMoveDraw() || isInsufficientMaterial() || isRepetition();
+    }
+
+    /**
+     * Check if a move is actually legal. So far we have no good solutions
+     * except for checking if the move is in the legal move list.
+     */
+    template <movegen::MoveGenType mt = movegen::MoveGenType::ALL>
+    bool isLegal(const Move& move) const {
+        const auto pt = at(move.from()).type();
+        Movelist   moves;
+        movegen::legalmoves<mt>(moves, *this, 1 << (int) pt);
+        return std::find(moves.begin(), moves.end(), move) != moves.end();
     }
 
 public:

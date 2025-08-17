@@ -5,25 +5,60 @@
 #include "types.h"
 #include <vector>
 
+namespace {
+enum class MovePickerStage {
+    TT,
+    GEN_NOISY,
+    GOOD_NOISY,
+    KILLER_1,
+    KILLER_2,
+    GEN_QUIET,
+    GOOD_QUIET,
+    BAD_NOISY,
+    BAD_QUIET,
+    END_NORMAL,
+
+    GEN_QSEARCH,
+    GOOD_QSEARCH,
+    END_QSEARCH
+};
+}
+
 class MovePicker {
 private:
-    struct MoveEntry {
-        uint16_t id;
+    struct ScoredMove {
+        uint16_t moveCode;
         int16_t  score;
 
-        MoveEntry(uint16_t _id, int16_t _s) : id(_id), score(_s) {}
-        inline Move object() const { return Move(id); }
-        inline bool operator<(const MoveEntry& other) { return score < other.score; }
-        inline bool operator>(const MoveEntry& other) { return score > other.score; }
+        bool operator<(const ScoredMove& other) const { return score < other.score; }
+        bool operator>(const ScoredMove& other) const { return score > other.score; }
+        Move move() const { return Move(moveCode); }
     };
 
-    std::vector<MoveEntry> moveBuffer;
+    Position&      pos;
+    SearchHistory& history;
+    uint16_t       ttMoveCode;
+    bool           _skipQuiet; // when enabled, skips everything after GOOD_NOISY
+    bool           inCheck;
+    int            ply;
+
+    std::vector<ScoredMove> quietBuffer;
+    std::vector<ScoredMove> noisyBuffer;
+    MovePickerStage         stage;
+
+private:
+    void generateNoisyMoves();
+    void generateQuietMoves();
+    void generateEvasionMoves();
 
 public:
-    MovePicker(Position& pos, const SearchHistory& history, const Move& ttMove);
-    ~MovePicker();
-
-    void skipQuiet();
+    MovePicker(
+        Position& pos, SearchHistory& history, int ply, uint16_t ttMoveCode, bool isQsearch) :
+        pos(pos), history(history), ply(ply), ttMoveCode(ttMoveCode), _skipQuiet(false) {
+        inCheck = pos.inCheck();
+        stage   = isQsearch ? MovePickerStage::GEN_QSEARCH : MovePickerStage::TT;
+    }
 
     Move next();
+    void skipQuiet();
 };

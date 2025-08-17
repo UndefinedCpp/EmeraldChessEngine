@@ -1,6 +1,6 @@
 #pragma once
 
-#include "search.h"
+#include "types.h"
 #include <chrono>
 
 using TimePoint = std::chrono::time_point<std::chrono::steady_clock>;
@@ -16,15 +16,15 @@ using TimePoint = std::chrono::time_point<std::chrono::steady_clock>;
  * save time.
  */
 struct TimeControl {
-    uint32_t softTimeWall = 0;
-    uint32_t hardTimeWall = 0;
-    uint32_t maxDepth = 0;
-    uint32_t softNodesWall = 0;
+    uint32_t  softTimeWall  = 0;
+    uint32_t  hardTimeWall  = 0;
+    uint32_t  maxDepth      = 0;
+    uint32_t  softNodesWall = 0;
     TimePoint startTime;
-    bool competitionMode = false;
+    bool      competitionMode = false;
 
     TimeControl() = default;
-    TimeControl(const Color stm, const SearchParams &params, TimePoint now) {
+    TimeControl(const Color stm, const SearchParams& params, TimePoint now) {
         uint32_t time, inc;
         startTime = now;
 
@@ -39,14 +39,14 @@ struct TimeControl {
             softNodesWall = params.nodes;
             return;
         } else { // specify remaining time and increment
-            time = stm == WHITE ? params.wtime : params.btime;
-            inc = stm == WHITE ? params.winc : params.binc;
+            time            = stm == WHITE ? params.wtime : params.btime;
+            inc             = stm == WHITE ? params.winc : params.binc;
             competitionMode = true;
         }
 
         float baseTime = time * 0.05f + inc * 0.75f;
-        softTimeWall = (uint32_t)(baseTime * 0.6f);
-        hardTimeWall = (uint32_t)(std::min(baseTime * 1.5f, time * 0.9f));
+        softTimeWall   = (uint32_t) (baseTime * 0.6f);
+        hardTimeWall   = (uint32_t) (std::min(baseTime * 1.5f, time * 0.9f));
     }
 
     static TimePoint now() {
@@ -63,13 +63,13 @@ struct TimeControl {
     /**
      * Check if we have hit the hard time limit.
      */
-    bool hitHardLimit(int depth, int nodes) const {
+    bool hitHardLimit(int depth, uint32_t nodes) const {
         if (softNodesWall > 0 && nodes >= softNodesWall)
             return true;
         if (maxDepth > 0) {
-            return depth > (int)maxDepth;
+            return depth > (int) maxDepth;
         }
-        return (uint32_t)_elapsed() >= hardTimeWall;
+        return (uint32_t) _elapsed() >= hardTimeWall;
     }
 
     /**
@@ -77,18 +77,18 @@ struct TimeControl {
      * @param stability The evaluation stability. The higher, the more likely
      * the evaluation is stable.
      */
-    bool hitSoftLimit(int depth, int nodes, int stability) const {
+    bool hitSoftLimit(int depth, uint32_t nodes, int stability) const {
         if (softNodesWall > 0 && nodes >= softNodesWall)
             return true;
         if (maxDepth > 0) {
-            return depth >= (int)maxDepth;
+            return depth >= (int) maxDepth;
         }
         // Dynamically adjust the time limit based on the stability.
         float scaleFactor = 1.0f;
         if (depth >= 5) { // Only scale after 5 plies are searched
             scaleFactor += 0.5 - std::min(stability, 5) / 10.0f;
         }
-        uint32_t limit = (uint32_t)(softTimeWall * scaleFactor);
+        uint32_t limit = (uint32_t) (softTimeWall * scaleFactor);
 
         return _elapsed() >= limit;
     }

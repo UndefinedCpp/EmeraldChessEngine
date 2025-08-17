@@ -126,3 +126,15 @@ constexpr Value DRAW_VALUE  = Value(0);
 using TimePoint = std::chrono::time_point<std::chrono::steady_clock>;
 
 constexpr int MAX_PLY = 128;
+
+struct SearchParams {
+    bool     infinite = false;
+    bool     ponder   = false;
+    uint32_t wtime = 0, btime = 0;
+    uint32_t winc = 0, binc = 0;
+    uint32_t movestogo = 0;
+    uint32_t depth     = 0;
+    uint32_t nodes     = 0;
+    uint32_t mate      = 0;
+    uint32_t movetime  = 0;
+};

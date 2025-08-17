@@ -41,7 +41,11 @@ public:
     };
 
 public:
-    KillerTable killerTable;
+    KillerTable killerTable[MAX_PLY];
 
-    void clear() { killerTable.clear(); }
+    void clear() {
+        for (int i = 0; i < MAX_PLY; i++) {
+            killerTable[i].clear();
+        }
+    }
 };
