@@ -4,11 +4,27 @@ This is a toy chess engine I developed over two weeks as part of my winter break
 
 This software **does not** come with a GUI, so if you want to play it you will need to download one from Internet. I recommend [en-croissant](https://github.com/franciscoBSalgueiro/en-croissant).
 
-This engine is still **WIP** and will be updated from time to time. Currently I am refactoring and optimizing and hope to hit 1600 Elo soon.
+This engine is still **WIP** and will be updated from time to time.
 
 ## Compiling
 
 Use the CMake to compile the engine.
+
+## Technical Details
+
+This engine is based on traditional *alpha-beta search* algorithm with simple optimizations and pruning methods. Features implemented:
+- Transposition table
+- Iterative deepening
+- Null move pruning
+- Quiescence search
+- Razoring
+- Late move reduction
+- History heuristics
+- A simple NNUE for evaluation
+
+Since v0.4.0 the engine uses **NNUE** for evaluation.
+- Uses naive `768->128->1` architecture. No accumulators, king buckets, subnetworks - so in theory this is not actually *efficiently updated*. However, with proper auto-vectorization this runs even *faster* than my previous handcrafted evaluation function.
+- Positions used to train this NNUE are collected from Lichess database. About 30% of the data is from chess960 variant. All positions are first evaluated with my own engine (v0.3.0) at depth 8, and then adjusted based on the actual outcome and the "imbalanceness" of the position. Thus, this network is purely original. So far, only 1.5M filtered positions are used to train this reasonably good network.
 
 ## License
 

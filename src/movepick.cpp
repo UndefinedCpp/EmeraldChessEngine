@@ -184,6 +184,11 @@ void MovePicker::generateNoisyMoves() {
         } else { // a losing capture
             score = mvvlva - 1000;
         }
+        // Use capture history heuristic
+        const int16_t hist = history.capHistoryTable.get(pos.sideToMove(), move, pos);
+        if (hist > 0) {
+            score = score / 2 + hist / 8;
+        }
 
         noisyBuffer.emplace_back(ScoredMove {move.move(), score});
     }
@@ -209,7 +214,7 @@ void MovePicker::generateQuietMoves() {
         if (pos.at(move.from()).type() != PieceType::PAWN &&
             (attacks::pawn(pos.sideToMove(), move.to()) &
              pos.pieces(PieceType::PAWN, ~pos.sideToMove()))) {
-            score -= 900;
+            score -= 1200;
         }
         // Assign score from quiet history
         int historyScore = history.qHistoryTable.get(pos.sideToMove(), move);

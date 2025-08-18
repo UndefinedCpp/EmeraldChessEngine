@@ -43,6 +43,17 @@ using SearchStack = std::array<SearchStackEntry, MAX_PLY>;
 
 std::thread searchThread;
 
+// LMR Table ============================================================================
+int8_t LMRTable[256][256];
+void   computeLMRTable() {
+    for (int depth = 1; depth < 256; ++depth) {
+        for (int moveIndex = 1; moveIndex < 256; ++moveIndex) {
+            LMRTable[depth][moveIndex] =
+                (int8_t) std::round(0.9f + std::sqrt(depth) * std::sqrt(moveIndex) / 3.0f);
+        }
+    }
+}
+
 // Global variables =====================================================================
 SearchStats   searchStats;
 SearchStack   searchStack;
@@ -104,7 +115,8 @@ Value qsearch(Position& pos, int depth, int ply, Value alpha, Value beta) {
         }
 
         // Delta Pruning
-        if (!pos.inCheck() && standPat + Value(1000) < alpha) {
+        Value delta = PIECE_VALUE[pos.at(m.to()).type()] + Value(200);
+        if (!pos.inCheck() && standPat + delta < alpha) {
             continue;
         }
 
@@ -207,9 +219,21 @@ Value negamax(Position& pos, int depth, int ply, Value alpha, Value beta, bool c
     currSS->staticEval = staticEval;
 
     // Pre-move-loop pruning
+
     // If static evaluation is a fail-high or fail-low, we can likely prune
     // without doing any further work.
     if (!isPV && !inCheck) {
+        // Reverse Futility Pruning
+        const Value futilityMargin = Value(200) + Value(100) * depth;
+        if (depth <= 9 && !alpha.isMate() && staticEval - futilityMargin > beta) {
+            return beta + (staticEval - beta) / 4;
+        }
+
+        // Razoring
+        if (staticEval < alpha - Value(500) - Value(100) * depth) {
+            return qsearch(pos, depth - 1, ply + 1, alpha, beta);
+        }
+
         // Null move pruning
         if (depth >= 6                                       // enough depth
             && currSS->canNullMove                           // prev move not null move
@@ -248,17 +272,32 @@ Value negamax(Position& pos, int depth, int ply, Value alpha, Value beta, bool c
         moveSearched++;
 
         // todo reductions and prunings
+        int reduction = 0;
+
+        const int lmrMinDepth = isPV ? 4 : 3;
+        if (moveSearched >= 3 && depth >= lmrMinDepth && !inCheck) {
+            reduction = LMRTable[depth][moveSearched];
+            if (!cutnode) {
+                reduction--;
+            }
+            if (isPV) {
+                reduction--;
+            }
+        }
 
         // Principal variation search
+        reduction       = std::clamp(reduction, 0, depth - 1);
+        int searchDepth = depth - reduction - 1;
+
         Value score;
         pos.makeMove(m);
         if (moveSearched == 1) {
-            score = -negamax<isPV>(pos, depth - 1, ply + 1, -beta, -alpha, false);
+            score = -negamax<isPV>(pos, searchDepth, ply + 1, -beta, -alpha, false);
         } else {
-            score = -negamax<false>(pos, depth - 1, ply + 1, -alpha - 1, -alpha, true);
+            score = -negamax<false>(pos, searchDepth, ply + 1, -alpha - 1, -alpha, true);
             // If it improves alpha, re-search with full window
             if (score > alpha && isPV) {
-                score = -negamax<true>(pos, depth - 1, ply + 1, -beta, -alpha, false);
+                score = -negamax<true>(pos, searchDepth, ply + 1, -beta, -alpha, false);
             }
         }
         pos.unmakeMove(m);
@@ -283,6 +322,9 @@ Value negamax(Position& pos, int depth, int ply, Value alpha, Value beta, bool c
                 if (!pos.isCapture(bestMove)) {
                     searchHistory.killerTable[ply].add(bestMove);
                     searchHistory.qHistoryTable.update(pos.sideToMove(), bestMove, depth * depth);
+                } else {
+                    searchHistory.capHistoryTable.update(
+                        pos.sideToMove(), bestMove, pos, depth * depth);
                 }
                 break;
             }
@@ -302,9 +344,9 @@ Value negamax(Position& pos, int depth, int ply, Value alpha, Value beta, bool c
 
 void searchWorker(SearchParams params, Position pos) {
     g_stopRequested.store(false);
-    searchStats = SearchStats();
     searchStack.fill(SearchStackEntry {});
     tt.incGeneration();
+    computeLMRTable();
 
     g_timeControl = TimeControl(pos.sideToMove(), params, TimeControl::now());
     int maxDepth  = params.depth > 0 ? (int) params.depth : 64;
@@ -316,6 +358,7 @@ void searchWorker(SearchParams params, Position pos) {
     Value windowLower = 20;
 
     for (int depth = 1; depth <= maxDepth; ++depth) {
+        searchStats = SearchStats();
         if (g_stopRequested.load())
             break;
         if (g_timeControl.hitSoftLimit(depth, (int) searchStats.nodes, 0))
@@ -343,7 +386,7 @@ void searchWorker(SearchParams params, Position pos) {
             }
         }
 
-        auto pv = extractPv(pos, depth);
+        auto pv = extractPv(pos, depth / 2 + 1);
         if (!pv.empty())
             rootBestMove = pv.front();
         rootBestScore = score;

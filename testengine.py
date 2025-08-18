@@ -34,7 +34,8 @@ def elo_mode(args):
     # Output
     cmd += [
         "-pgnout", f'elo_{time.strftime("%Y%m%d-%H%M%S", time.localtime())}.pgn',
-        "-output", "format=fastchess"
+        "-output", "format=fastchess",
+        # "-log", "level=err"
     ]
 
     run_fastchess(cmd)

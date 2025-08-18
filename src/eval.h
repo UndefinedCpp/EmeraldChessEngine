@@ -3,6 +3,8 @@
 #include "types.h"
 #include <cstring>
 
+constexpr Value PIECE_VALUE[7] = {100, 300, 330, 550, 900, 10000, 0};
+
 /**
  * Checks if the game is over and returns the appropriate score.
  */
