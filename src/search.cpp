@@ -103,6 +103,11 @@ Value qsearch(Position& pos, int depth, int ply, Value alpha, Value beta) {
             break;
         }
 
+        // Delta Pruning
+        if (!pos.inCheck() && standPat + Value(1000) < alpha) {
+            continue;
+        }
+
         pos.makeMove(m);
         Value score = -qsearch(pos, depth - 1, ply + 1, -beta, -alpha);
         pos.unmakeMove(m);
@@ -166,6 +171,9 @@ Value negamax(Position& pos, int depth, int ply, Value alpha, Value beta, bool c
 
     searchHistory.killerTable[ply + 1].clear();
     searchStats.nodes++;
+    if (ply == 0) {
+        searchHistory.qHistoryTable.clear();
+    }
 
     // Transposition table lookup
     // See if this node has been visited before. If so, we can reuse the data
@@ -271,9 +279,10 @@ Value negamax(Position& pos, int depth, int ply, Value alpha, Value beta, bool c
             currSS->bestMove = m;
             if (score >= beta) {
                 ttFlag = EntryType::LOWER_BOUND;
-                // Record quiet killer moves
+                // Update quiet history
                 if (!pos.isCapture(bestMove)) {
                     searchHistory.killerTable[ply].add(bestMove);
+                    searchHistory.qHistoryTable.update(pos.sideToMove(), bestMove, depth * depth);
                 }
                 break;
             }
@@ -303,15 +312,36 @@ void searchWorker(SearchParams params, Position pos) {
     Move  rootBestMove;
     Value rootBestScore = MATED_VALUE;
 
+    Value windowUpper = 20;
+    Value windowLower = 20;
+
     for (int depth = 1; depth <= maxDepth; ++depth) {
         if (g_stopRequested.load())
             break;
         if (g_timeControl.hitSoftLimit(depth, (int) searchStats.nodes, 0))
             break;
 
-        Value score = negamax<true>(pos, depth, 0, MATED_VALUE, MATE_VALUE, false);
-        if (g_stopRequested.load())
-            break;
+        // Aspiration window
+        Value score;
+        if (depth <= 3) {
+            score = negamax<true>(pos, depth, 0, MATED_VALUE, MATE_VALUE, false);
+        } else {
+            Value alpha = rootBestScore - windowLower;
+            Value beta  = rootBestScore + windowUpper;
+            score       = negamax<true>(pos, depth, 0, alpha, beta, false);
+            // Adjust window on fail-highs or fail-lows
+            if (score >= beta) {
+                windowUpper = std::min(MATE_VALUE, windowUpper * 2);
+                continue;
+            } else if (score <= alpha) {
+                windowLower = std::min(MATE_VALUE, windowLower * 2);
+                continue;
+            } else {
+                // Score within window, accept the score
+                windowUpper = 25;
+                windowLower = 25;
+            }
+        }
 
         auto pv = extractPv(pos, depth);
         if (!pv.empty())
@@ -325,6 +355,8 @@ void searchWorker(SearchParams params, Position pos) {
         std::cout << std::endl;
 
         if (g_timeControl.hitSoftLimit(depth, (int) searchStats.nodes, 0))
+            break;
+        if (g_stopRequested.load())
             break;
     }
 

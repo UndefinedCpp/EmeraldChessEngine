@@ -61,4 +61,6 @@ public:
 
     Move next();
     void skipQuiet();
+
+    const MovePickerStage& getStage() const { return stage; }
 };

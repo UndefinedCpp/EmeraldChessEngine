@@ -209,8 +209,11 @@ void MovePicker::generateQuietMoves() {
         if (pos.at(move.from()).type() != PieceType::PAWN &&
             (attacks::pawn(pos.sideToMove(), move.to()) &
              pos.pieces(PieceType::PAWN, ~pos.sideToMove()))) {
-            score -= 200;
+            score -= 900;
         }
+        // Assign score from quiet history
+        int historyScore = history.qHistoryTable.get(pos.sideToMove(), move);
+        score += historyScore / 8;
 
         quietBuffer.emplace_back(ScoredMove {move.move(), score});
     }

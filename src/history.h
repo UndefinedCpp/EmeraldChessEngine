@@ -5,8 +5,8 @@
 #include <cstring>
 #include <vector>
 
-constexpr short MAX_HISTORY_SCORE = 5000;
-constexpr short MIN_HISTORY_SCORE = -5000;
+constexpr short MAX_HISTORY_SCORE = 10000;
+constexpr short MIN_HISTORY_SCORE = -10000;
 
 /**
  * This class keeps track of the search history.
@@ -40,8 +40,25 @@ public:
         }
     };
 
+    struct QuietHistoryTable {
+        int16_t data[2][64][64];
+
+        void clear() { std::memset(data, 0, sizeof(data)); }
+
+        inline int16_t get(const Color stm, const Move& move) {
+            return data[(int) stm][move.from().index()][move.to().index()];
+        }
+        inline void update(const Color stm, const Move& move, int16_t bonus) {
+            int16_t& ref      = data[(int) stm][move.from().index()][move.to().index()];
+            int      newScore = bonus + ref;
+
+            ref = std::clamp(newScore, (int) MIN_HISTORY_SCORE, (int) MAX_HISTORY_SCORE);
+        }
+    };
+
 public:
-    KillerTable killerTable[MAX_PLY];
+    KillerTable       killerTable[MAX_PLY];
+    QuietHistoryTable qHistoryTable;
 
     void clear() {
         for (int i = 0; i < MAX_PLY; i++) {
