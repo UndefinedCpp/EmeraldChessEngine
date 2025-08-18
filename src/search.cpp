@@ -241,9 +241,18 @@ Value negamax(Position& pos, int depth, int ply, Value alpha, Value beta, bool c
 
         // todo reductions and prunings
 
+        // Principal variation search
+        Value score;
         pos.makeMove(m);
-        // todo implement principal variation search
-        Value score = -negamax<true>(pos, depth - 1, ply + 1, -beta, -alpha, false);
+        if (moveSearched == 1) {
+            score = -negamax<isPV>(pos, depth - 1, ply + 1, -beta, -alpha, false);
+        } else {
+            score = -negamax<false>(pos, depth - 1, ply + 1, -alpha - 1, -alpha, true);
+            // If it improves alpha, re-search with full window
+            if (score > alpha && isPV) {
+                score = -negamax<true>(pos, depth - 1, ply + 1, -beta, -alpha, false);
+            }
+        }
         pos.unmakeMove(m);
 
         // Stop searching if time control is hit
@@ -262,6 +271,10 @@ Value negamax(Position& pos, int depth, int ply, Value alpha, Value beta, bool c
             currSS->bestMove = m;
             if (score >= beta) {
                 ttFlag = EntryType::LOWER_BOUND;
+                // Record quiet killer moves
+                if (!pos.isCapture(bestMove)) {
+                    searchHistory.killerTable[ply].add(bestMove);
+                }
                 break;
             }
         }

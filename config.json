@@ -25,7 +25,7 @@
     "pgn": {
         "event_name": "Fastchess Tournament",
         "site": "?",
-        "file": "elo_20250817-231021.pgn",
+        "file": "elo_20250818-094028.pgn",
         "notation": 0,
         "track_nodes": false,
         "track_seldepth": false,
@@ -48,7 +48,7 @@
     },
     "config_name": "",
     "output": 0,
-    "seed": 6913807169441360982,
+    "seed": 12012971255052956627,
     "variant": 0,
     "ratinginterval": 10,
     "scoreinterval": 1,
@@ -90,9 +90,9 @@
             "variant": 0
         },
         {
-            "name": "engine.0.1.1.core-avx2",
+            "name": "engine.old",
             "dir": "",
-            "cmd": "build/engine.0.1.1.core-avx2.exe",
+            "cmd": "build/engine.old.exe",
             "args": "",
             "options": [],
             "limit": {
@@ -110,26 +110,26 @@
         }
     ],
     "stats": {
-        "engine.0.1.1.core-avx2 vs engine": {
-            "wins": 2,
-            "losses": 10,
+        "engine.old vs engine": {
+            "wins": 4,
+            "losses": 15,
+            "draws": 1,
+            "penta_WW": 0,
+            "penta_WD": 0,
+            "penta_WL": 4,
+            "penta_DD": 0,
+            "penta_LD": 1,
+            "penta_LL": 5
+        },
+        "engine vs engine.old": {
+            "wins": 0,
+            "losses": 0,
             "draws": 0,
             "penta_WW": 0,
             "penta_WD": 0,
-            "penta_WL": 2,
+            "penta_WL": 0,
             "penta_DD": 0,
             "penta_LD": 0,
-            "penta_LL": 4
-        },
-        "engine vs engine.0.1.1.core-avx2": {
-            "wins": 4,
-            "losses": 2,
-            "draws": 2,
-            "penta_WW": 1,
-            "penta_WD": 1,
-            "penta_WL": 1,
-            "penta_DD": 0,
-            "penta_LD": 1,
             "penta_LL": 0
         }
     }
