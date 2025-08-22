@@ -251,8 +251,15 @@ Value negamax(Position& pos, int depth, int ply, Value alpha, Value beta, bool c
             searchStack[ply + 1].canNullMove = true; // restore
 
             if (score >= beta) {
-                // do not report unverified mate scores
-                return score.isMate() ? beta : score;
+                if (depth <= 14) {
+                    return score.isMate() ? beta : score;
+                } else {
+                    // Verification search at high depth
+                    Value verifyScore = negamax<false>(pos, 5, ply, beta - 1, beta, true);
+                    if (verifyScore >= beta) {
+                        return score;
+                    }
+                }
             }
         }
     }
@@ -275,12 +282,19 @@ Value negamax(Position& pos, int depth, int ply, Value alpha, Value beta, bool c
         int reduction = 0;
 
         const int lmrMinDepth = isPV ? 4 : 3;
-        if (moveSearched >= 3 && depth >= lmrMinDepth && !inCheck) {
+        if (moveSearched >= 2 && depth >= lmrMinDepth && !inCheck) {
             reduction = LMRTable[depth][moveSearched];
             if (!cutnode) {
                 reduction--;
             }
             if (isPV) {
+                reduction--;
+            }
+            if (!pos.isCapture(m) // reduce more for bad quiet moves
+                && searchHistory.qHistoryTable.get(pos.sideToMove(), m) < 0) {
+                reduction++;
+            }
+            if (pos.isCapture(m) || pos.isCheckMove(m)) { // reduce less for tactic moves
                 reduction--;
             }
         }

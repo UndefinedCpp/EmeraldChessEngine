@@ -11,7 +11,7 @@ set(CMAKE_CXX_COMPILER g++)
 # Collect all .cpp files from src
 file(GLOB SRC_FILES src/*.cpp)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -mavx2 -mfma -march=native")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -mavx2 -mfma -march=core-avx2 -static")
 
 # Output to build/
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/build)
