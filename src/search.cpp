@@ -9,6 +9,7 @@
 #include <array>
 #include <atomic>
 #include <iostream>
+#include <set>
 #include <thread>
 #include <vector>
 
@@ -62,10 +63,16 @@ SearchHistory searchHistory;
 std::vector<Move> extractPv(Position pos, int maxDepth = 64) {
     std::vector<Move> pv;
     pv.reserve(maxDepth);
+
     for (int d = 0; d < maxDepth; ++d) {
         TTEntry* e = tt.probe(pos);
-        if (!e || !e->hasInitialized() || e->zobrist != pos.hash())
+        if (!e || !e->hasInitialized() || e->zobrist != pos.hash() || e->type != EntryType::EXACT)
             break;
+
+        // Testing platform is unhappy about moves after repetition
+        if (pos.isRepetition())
+            break;
+
         Move m = e->move();
         if (m.move() == 0 || !pos.isLegal(m))
             break;
@@ -400,7 +407,7 @@ void searchWorker(SearchParams params, Position pos) {
             }
         }
 
-        auto pv = extractPv(pos, depth / 2 + 1);
+        auto pv = extractPv(pos, depth);
         if (!pv.empty())
             rootBestMove = pv.front();
         rootBestScore = score;
