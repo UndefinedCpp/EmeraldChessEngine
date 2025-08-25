@@ -370,7 +370,7 @@ void searchWorker(SearchParams params, Position pos) {
     computeLMRTable();
 
     g_timeControl = TimeControl(pos.sideToMove(), params, TimeControl::now());
-    int maxDepth  = params.depth > 0 ? (int) params.depth : 64;
+    int maxDepth  = g_timeControl.getLoopDepth();
 
     Move  rootBestMove;
     Value rootBestScore = MATED_VALUE;
@@ -382,8 +382,10 @@ void searchWorker(SearchParams params, Position pos) {
         searchStats = SearchStats();
         if (g_stopRequested.load())
             break;
-        if (g_timeControl.hitSoftLimit(depth, (int) searchStats.nodes, 0))
+        if (g_timeControl.hitSoftLimit(depth, searchStats.nodes, 0)) {
+            std::cout << "info string time control stop at " << depth << std::endl;
             break;
+        }
 
         // Aspiration window
         Value score;

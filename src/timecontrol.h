@@ -16,10 +16,10 @@ using TimePoint = std::chrono::time_point<std::chrono::steady_clock>;
  * save time.
  */
 struct TimeControl {
-    uint32_t  softTimeWall  = 0;
-    uint32_t  hardTimeWall  = 0;
-    uint32_t  maxDepth      = 0;
-    uint32_t  softNodesWall = 0;
+    uint32_t  softTimeWall = 0;
+    uint32_t  hardTimeWall = 0;
+    uint32_t  maxDepth     = 0;
+    uint32_t  nodesWall    = 0;
     TimePoint startTime;
     bool      competitionMode = false;
 
@@ -34,9 +34,9 @@ struct TimeControl {
         } else if (params.depth > 0) { // specify depth
             maxDepth = params.depth;
             return;
-        } else if (params.nodes > 0) // specify nodes
-        {
-            softNodesWall = params.nodes;
+        } else if (params.nodes > 0) { // specify nodes
+            nodesWall    = params.nodes;
+            softTimeWall = hardTimeWall = 10000000;
             return;
         } else { // specify remaining time and increment
             time            = stm == WHITE ? params.wtime : params.btime;
@@ -64,8 +64,9 @@ struct TimeControl {
      * Check if we have hit the hard time limit.
      */
     bool hitHardLimit(int depth, uint32_t nodes) const {
-        if (softNodesWall > 0 && nodes >= softNodesWall)
+        if (nodesWall > 0 && nodes >= nodesWall * 3 / 2) {
             return true;
+        }
         if (maxDepth > 0) {
             return depth > (int) maxDepth;
         }
@@ -78,8 +79,9 @@ struct TimeControl {
      * the evaluation is stable.
      */
     bool hitSoftLimit(int depth, uint32_t nodes, int stability) const {
-        if (softNodesWall > 0 && nodes >= softNodesWall)
+        if (nodesWall > 0 && nodes >= nodesWall) {
             return true;
+        }
         if (maxDepth > 0) {
             return depth >= (int) maxDepth;
         }
@@ -91,5 +93,17 @@ struct TimeControl {
         uint32_t limit = (uint32_t) (softTimeWall * scaleFactor);
 
         return _elapsed() >= limit;
+    }
+
+    int getLoopDepth() const {
+        if (nodesWall > 0 && maxDepth == 0) {
+            return 64; // todo use magic
+        }
+        if (maxDepth > 0) {
+            return maxDepth;
+        }
+
+        std::cout << "info string Warning: invalid loop depth" << std::endl;
+        return 64;
     }
 };
