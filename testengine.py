@@ -79,7 +79,8 @@ def sprt_mode(args):
     # Output
     cmd += [
         "-pgnout", f'sprt_{time.strftime("%Y%m%d-%H%M%S", time.localtime())}.pgn',
-        "-output", "format=fastchess"
+        "-output", "format=fastchess",
+        '-games', '10'
     ]
 
     run_fastchess(cmd)

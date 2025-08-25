@@ -387,6 +387,19 @@ void searchWorker(SearchParams params, Position pos) {
             break;
         }
 
+        // In competition mode, at depth 1 we check if there is only one legal move.
+        // If so, we don't search any more.
+        if (g_timeControl.competitionMode && depth == 1) {
+            Movelist legalMoves = pos.legalMoves();
+            if (legalMoves.size() == 1) {
+                rootBestMove  = legalMoves[0];
+                rootBestScore = evaluate(pos); // static evaluation
+                std::cout << "info depth 1 score " << rootBestScore << " nodes 0 seldepth 0"
+                          << std::endl;
+                break;
+            }
+        }
+
         // Aspiration window
         Value score;
         if (depth <= 3) {

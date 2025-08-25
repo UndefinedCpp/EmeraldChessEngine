@@ -38,6 +38,9 @@ struct TimeControl {
             nodesWall    = params.nodes;
             softTimeWall = hardTimeWall = 10000000;
             return;
+        } else if (params.infinite) {
+            maxDepth = 128;
+            return;
         } else { // specify remaining time and increment
             time            = stm == WHITE ? params.wtime : params.btime;
             inc             = stm == WHITE ? params.winc : params.binc;
