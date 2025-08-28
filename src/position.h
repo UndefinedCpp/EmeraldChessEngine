@@ -53,38 +53,29 @@ public:
     }
 
     /**
-     * Gets the bitboard of attacked squares from a given square.
+     * Gets the bitboard of attacked squares for a specific piece type and color
      */
-    Bitboard getAttackMap(const Square square) const {
-        Piece piece = at(square);
-        Color color = piece.color();
-        int   type  = static_cast<int>(piece.type());
-        switch (type) {
-            case (int) TYPE_PAWN:
-                return chess::attacks::pawn(color, square);
-            case (int) TYPE_KNIGHT:
-                return chess::attacks::knight(square);
-            case (int) TYPE_BISHOP:
-                return chess::attacks::bishop(square, occ());
-            case (int) TYPE_ROOK:
-                return chess::attacks::rook(square, occ());
-            case (int) TYPE_QUEEN:
-                return chess::attacks::bishop(square, occ()) | chess::attacks::rook(square, occ());
-            case (int) TYPE_KING:
-                return chess::attacks::king(square);
-            default:
-                return Bitboard(0ull);
+    template <PieceType::underlying pt>
+    Bitboard getAttackMap(const Color color) {
+        Bitboard bb;
+        Bitboard pc = pieces(PieceType(pt), color);
+        while (pc) {
+            const Square sq = pc.pop();
+            if (pt == TYPE_PAWN) {
+                bb |= attacks::pawn(color, sq);
+            } else if (pt == TYPE_KNIGHT) {
+                bb |= attacks::knight(sq);
+            } else if (pt == TYPE_BISHOP) {
+                bb |= attacks::bishop(sq, occ());
+            } else if (pt == TYPE_ROOK) {
+                bb |= attacks::rook(sq, occ());
+            } else if (pt == TYPE_QUEEN) {
+                bb |= attacks::bishop(sq, occ()) | attacks::rook(sq, occ());
+            } else if (pt == TYPE_KING) {
+                bb |= attacks::king(sq);
+            }
         }
-    }
-
-    /**
-     * Similar to `getAttackMap`, but not including friendly occupied squares.
-     */
-    Bitboard getMotionMap(const Square square) const {
-        Color    ally         = at(square).color();
-        Bitboard allyOccupied = us(ally);
-        Bitboard attackMap    = getAttackMap(square);
-        return attackMap & ~allyOccupied;
+        return bb;
     }
 
     int countPieces(const chess::PieceType type) const { return pieces(type).count(); }

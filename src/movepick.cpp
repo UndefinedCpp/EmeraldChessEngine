@@ -200,6 +200,20 @@ void MovePicker::generateQuietMoves() {
     Movelist quietMoves;
     movegen::legalmoves<movegen::MoveGenType::QUIET>(quietMoves, pos);
 
+    // Generate opponent threat masks
+    Bitboard threatenedBy[6];
+    threatenedBy[(int) TYPE_PAWN]   = 0;
+    threatenedBy[(int) TYPE_KNIGHT] = pos.getAttackMap<TYPE_PAWN>(~pos.sideToMove());
+    threatenedBy[(int) TYPE_BISHOP] = threatenedBy[(int) TYPE_PAWN];
+    threatenedBy[(int) TYPE_ROOK]   = threatenedBy[(int) TYPE_KNIGHT] |
+                                    pos.getAttackMap<TYPE_BISHOP>(~pos.sideToMove()) |
+                                    pos.getAttackMap<TYPE_KNIGHT>(~pos.sideToMove());
+    threatenedBy[(int) TYPE_QUEEN] =
+        threatenedBy[(int) TYPE_ROOK] | pos.getAttackMap<TYPE_QUEEN>(~pos.sideToMove());
+    threatenedBy[(int) TYPE_KING] =
+        threatenedBy[(int) TYPE_QUEEN] | pos.getAttackMap<TYPE_QUEEN>(~pos.sideToMove());
+    static constexpr int16_t PT_WEIGHT[] = {0, 2, 2, 4, 8, 16, 100};
+
     for (const Move& move : quietMoves) {
         int16_t score = 0;
         // Bonus for checks
@@ -210,15 +224,19 @@ void MovePicker::generateQuietMoves() {
         if (move.typeOf() == Move::PROMOTION && move.promotionType() == PieceType::QUEEN) {
             score += PROMOTION_BONUS;
         }
-        // Penalty for moving into squares controlled by opponent pawns
-        if (pos.at(move.from()).type() != PieceType::PAWN &&
-            (attacks::pawn(pos.sideToMove(), move.to()) &
-             pos.pieces(PieceType::PAWN, ~pos.sideToMove()))) {
-            score -= 1200;
-        }
+        // Penalty for moving into squares controlled by lower-ranked pieces
+        // and bonus for escaping from them
+        const auto    fromSq    = move.from().index();
+        const auto    toSq      = move.to().index();
+        const auto    pieceType = pos.at(move.from()).type();
+        const int16_t v         = (threatenedBy[(int) pieceType].check(toSq))     ? -95
+                                  : (threatenedBy[(int) pieceType].check(fromSq)) ? 100
+                                                                                  : 0;
+        score += v * PT_WEIGHT[(int) pieceType];
+
         // Assign score from quiet history
         int historyScore = history.qHistoryTable.get(pos.sideToMove(), move);
-        score += historyScore / 8;
+        score += historyScore / 4;
 
         quietBuffer.emplace_back(ScoredMove {move.move(), score});
     }
@@ -229,6 +247,7 @@ void MovePicker::generateEvasionMoves() {
     Movelist moves;
     movegen::legalmoves(moves, pos);
     for (const Move& move : moves) {
-        noisyBuffer.emplace_back(ScoredMove {move.move(), 0});
+        int16_t historyScore = (int16_t) history.qHistoryTable.get(pos.sideToMove(), move);
+        noisyBuffer.emplace_back(ScoredMove {move.move(), historyScore});
     }
 }
