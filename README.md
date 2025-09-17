@@ -1,6 +1,6 @@
 # Overview
 
-This is a toy chess engine I developed over two weeks as part of my winter break project. It is **UCI-compatible**, and plays at the level of **1727 Elo** on [CCRL](https://computerchess.org.uk/ccrl/404/cgi/engine_details.cgi?match_length=30&each_game=1&print=Details&each_game=1&eng=Emerald%200.3.0%2064-bit#Emerald_0_3_0_64-bit).
+This is a toy chess engine I developed over two weeks as part of my winter break project. It is **UCI-compatible**, and plays at the level of **2395 Elo** on [CCRL](https://computerchess.org.uk/ccrl/404/cgi/engine_details.cgi?print=Details&each_game=1&eng=Emerald%200.4.0%2064-bit#Emerald_0_4_0_64-bit).
 
 This software **does not** come with a GUI, so if you want to play it you will need to download one from Internet. I recommend [en-croissant](https://github.com/franciscoBSalgueiro/en-croissant).
 
@@ -8,7 +8,7 @@ This engine is still **WIP** and will be updated from time to time.
 
 ## Compiling
 
-Use the CMake to compile the engine.
+Use CMake to compile the engine.
 
 ## Technical Details
 
