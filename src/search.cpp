@@ -434,7 +434,7 @@ void searchWorker(SearchParams params, Position pos) {
                                            : statNodesSearched;
         std::cout << "info depth " << depth << " score " << score << " time " << statTimeElapsed
                   << " nodes " << statNodesSearched << " nps " << statNps << " seldepth "
-                  << searchStats.selDepth << " pv";
+                  << searchStats.selDepth << " hashfull " << tt.hashfull() << " pv";
         for (auto& m : pv)
             std::cout << " " << m;
         std::cout << std::endl;

@@ -6,7 +6,8 @@ using namespace std;
 
 int main() {
     cout << "Emerald Chess Engine by UndefinedCpp, version " << ENGINE_VERSION << endl;
-    tt.init(8 * 1024 * 1024); // todo refactor, currently fixed at 128MB
+
+    g_ucioption.set("Hash", "16"); // default 16 MB
 
     // Begin UCI loop
     std::string input;
