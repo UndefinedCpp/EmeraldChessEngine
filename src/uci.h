@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ucioption.h"
 #include <iostream>
 #include <sstream>
 #include <string>

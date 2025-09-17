@@ -427,8 +427,14 @@ void searchWorker(SearchParams params, Position pos) {
             rootBestMove = pv.front();
         rootBestScore = score;
 
-        std::cout << "info depth " << depth << " score " << score << " nodes " << searchStats.nodes
-                  << " seldepth " << searchStats.selDepth << " pv";
+        const auto statNodesSearched = searchStats.nodes;
+        const auto statTimeElapsed   = g_timeControl._elapsed();
+        const int  statNps           = statTimeElapsed > 0
+                                           ? (int) ((float) (statNodesSearched) / statTimeElapsed * 1000)
+                                           : statNodesSearched;
+        std::cout << "info depth " << depth << " score " << score << " time " << statTimeElapsed
+                  << " nodes " << statNodesSearched << " nps " << statNps << " seldepth "
+                  << searchStats.selDepth << " pv";
         for (auto& m : pv)
             std::cout << " " << m;
         std::cout << std::endl;

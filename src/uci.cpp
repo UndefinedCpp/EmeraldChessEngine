@@ -18,9 +18,9 @@ std::queue<std::thread> threads;
  * Executes a UCI command line.
  *
  */
-void execute(const std::string &command) {
+void execute(const std::string& command) {
     // Setup input stream
-    std::string token;
+    std::string        token;
     std::istringstream iss(command);
     iss >> token;
 
@@ -28,7 +28,8 @@ void execute(const std::string &command) {
     if (token == "uci") {
         std::cout << "id name Emerald " << ENGINE_VERSION << std::endl;
         std::cout << "id author UndefinedCpp" << std::endl;
-        // TODO Send options
+        std::cout << std::endl;
+        std::cout << g_ucioption << std::endl;
         std::cout << "uciok" << std::endl;
         return;
     }
@@ -47,7 +48,19 @@ void execute(const std::string &command) {
 
     // <Command> setoption
     if (token == "setoption") {
-        std::cout << "info string setoption not implemented" << std::endl;
+        std::string temp, name, value;
+        iss >> temp;
+        if (temp != "name") {
+            return;
+        }
+        iss >> name;
+        iss >> temp;
+        if (temp != "value") {
+            return;
+        }
+        iss >> value;
+        g_ucioption.set(name, value);
+        return;
     }
 
     // <Command> ucinewgame
@@ -143,8 +156,7 @@ void execute(const std::string &command) {
     // <Util> d
     // Display the board
     if (token == "d") {
-        std::cout << uci::board << "Evaluation: " << evaluate(uci::board)
-                  << std::endl;
+        std::cout << uci::board << "Evaluation: " << evaluate(uci::board) << std::endl;
         return;
     }
 

@@ -272,6 +272,30 @@ src/uci.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\engine.dir\build.make CMakeFiles/engine.dir/src/uci.cpp.s
 .PHONY : src/uci.cpp.s
 
+src/ucioption.obj: src/ucioption.cpp.obj
+.PHONY : src/ucioption.obj
+
+# target to build an object file
+src/ucioption.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\engine.dir\build.make CMakeFiles/engine.dir/src/ucioption.cpp.obj
+.PHONY : src/ucioption.cpp.obj
+
+src/ucioption.i: src/ucioption.cpp.i
+.PHONY : src/ucioption.i
+
+# target to preprocess a source file
+src/ucioption.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\engine.dir\build.make CMakeFiles/engine.dir/src/ucioption.cpp.i
+.PHONY : src/ucioption.cpp.i
+
+src/ucioption.s: src/ucioption.cpp.s
+.PHONY : src/ucioption.s
+
+# target to generate assembly for a file
+src/ucioption.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\engine.dir\build.make CMakeFiles/engine.dir/src/ucioption.cpp.s
+.PHONY : src/ucioption.cpp.s
+
 # Help Target
 help:
 	@echo The following are some of the valid targets for this Makefile:
@@ -299,6 +323,9 @@ help:
 	@echo ... src/uci.obj
 	@echo ... src/uci.i
 	@echo ... src/uci.s
+	@echo ... src/ucioption.obj
+	@echo ... src/ucioption.i
+	@echo ... src/ucioption.s
 .PHONY : help
 
 
