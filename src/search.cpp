@@ -306,6 +306,13 @@ Value negamax(Position& pos, int depth, int ply, Value alpha, Value beta, bool c
             }
         }
 
+        // Futility Pruning
+        if (!isPV && !isRoot && !inCheck && depth <= 8 && !pos.isCapture(m) &&
+            staticEval + Value(500) < alpha) {
+            mp.skipQuiet();
+            continue;
+        }
+
         // Principal variation search
         reduction       = std::clamp(reduction, 0, depth - 1);
         int searchDepth = depth - reduction - 1;
@@ -363,7 +370,12 @@ Value negamax(Position& pos, int depth, int ply, Value alpha, Value beta, bool c
     return bestScore;
 }
 
-void searchWorker(SearchParams params, Position pos) {
+void searchWorker(
+    SearchParams params,
+    Position     pos,
+    uint16_t*    outBestMove  = nullptr, // optional output best move
+    Value*       outBestValue = nullptr, // optional output best value
+    bool         verbose      = true) {
     g_stopRequested.store(false);
     searchStack.fill(SearchStackEntry {});
     tt.incGeneration();
@@ -382,7 +394,7 @@ void searchWorker(SearchParams params, Position pos) {
         searchStats = SearchStats();
         if (g_stopRequested.load())
             break;
-        if (g_timeControl.hitSoftLimit(depth, searchStats.nodes, 0)) {
+        if (verbose && g_timeControl.hitSoftLimit(depth, searchStats.nodes, 0)) {
             std::cout << "info string time control stop at " << depth << std::endl;
             break;
         }
@@ -394,8 +406,10 @@ void searchWorker(SearchParams params, Position pos) {
             if (legalMoves.size() == 1) {
                 rootBestMove  = legalMoves[0];
                 rootBestScore = evaluate(pos); // static evaluation
-                std::cout << "info depth 1 score " << rootBestScore << " nodes 0 seldepth 0"
-                          << std::endl;
+                if (verbose) {
+                    std::cout << "info depth 1 score " << rootBestScore << " nodes 0 seldepth 0"
+                              << std::endl;
+                }
                 break;
             }
         }
@@ -432,12 +446,14 @@ void searchWorker(SearchParams params, Position pos) {
         const int  statNps           = statTimeElapsed > 0
                                            ? (int) ((float) (statNodesSearched) / statTimeElapsed * 1000)
                                            : statNodesSearched;
-        std::cout << "info depth " << depth << " score " << score << " time " << statTimeElapsed
-                  << " nodes " << statNodesSearched << " nps " << statNps << " seldepth "
-                  << searchStats.selDepth << " hashfull " << tt.hashfull() << " pv";
-        for (auto& m : pv)
-            std::cout << " " << m;
-        std::cout << std::endl;
+        if (verbose) {
+            std::cout << "info depth " << depth << " score " << score << " time " << statTimeElapsed
+                      << " nodes " << statNodesSearched << " nps " << statNps << " seldepth "
+                      << searchStats.selDepth << " hashfull " << tt.hashfull() << " pv";
+            for (auto& m : pv)
+                std::cout << " " << m;
+            std::cout << std::endl;
+        }
 
         if (g_timeControl.hitSoftLimit(depth, (int) searchStats.nodes, 0))
             break;
@@ -445,10 +461,17 @@ void searchWorker(SearchParams params, Position pos) {
             break;
     }
 
-    if (rootBestMove.move() != 0)
-        std::cout << "bestmove " << rootBestMove << std::endl;
-    else
-        std::cout << "bestmove 0000" << std::endl;
+    if (verbose) {
+        if (rootBestMove.move() != 0)
+            std::cout << "bestmove " << rootBestMove << std::endl;
+        else
+            std::cout << "bestmove 0000" << std::endl;
+    }
+
+    if (outBestMove)
+        *outBestMove = rootBestMove.move();
+    if (outBestValue)
+        *outBestValue = rootBestScore;
 }
 
 } // namespace
@@ -461,7 +484,22 @@ void think(SearchParams params, const Position pos) {
     g_stopRequested.store(false);
     searchStats = SearchStats();
     searchStack.fill(SearchStackEntry {});
-    searchThread = std::thread(searchWorker, params, pos);
+    searchThread = std::thread(searchWorker, params, pos, nullptr, nullptr, true);
+}
+
+std::pair<uint16_t, Value> internalSearch(SearchParams params, const Position pos) {
+    // Init search work
+    g_stopRequested.store(false);
+    searchStats = SearchStats();
+    searchStack.fill(SearchStackEntry {});
+    tt.clear();
+    searchHistory.clear();
+
+    uint16_t bestMove;
+    Value    bestValue;
+    searchWorker(params, pos, &bestMove, &bestValue, false);
+
+    return {bestMove, bestValue};
 }
 
 void stopThinking() {

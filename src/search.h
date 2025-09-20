@@ -9,3 +9,5 @@ extern TimeControl       g_timeControl;
 
 void think(SearchParams params, const Position pos);
 void stopThinking();
+
+std::pair<uint16_t, Value> internalSearch(SearchParams params, const Position pos);

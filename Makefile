@@ -128,6 +128,30 @@ engine/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\engine.dir\build.make CMakeFiles/engine.dir/build
 .PHONY : engine/fast
 
+src/annotate.obj: src/annotate.cpp.obj
+.PHONY : src/annotate.obj
+
+# target to build an object file
+src/annotate.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\engine.dir\build.make CMakeFiles/engine.dir/src/annotate.cpp.obj
+.PHONY : src/annotate.cpp.obj
+
+src/annotate.i: src/annotate.cpp.i
+.PHONY : src/annotate.i
+
+# target to preprocess a source file
+src/annotate.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\engine.dir\build.make CMakeFiles/engine.dir/src/annotate.cpp.i
+.PHONY : src/annotate.cpp.i
+
+src/annotate.s: src/annotate.cpp.s
+.PHONY : src/annotate.s
+
+# target to generate assembly for a file
+src/annotate.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\engine.dir\build.make CMakeFiles/engine.dir/src/annotate.cpp.s
+.PHONY : src/annotate.cpp.s
+
 src/eval.obj: src/eval.cpp.obj
 .PHONY : src/eval.obj
 
@@ -305,6 +329,9 @@ help:
 	@echo ... edit_cache
 	@echo ... rebuild_cache
 	@echo ... engine
+	@echo ... src/annotate.obj
+	@echo ... src/annotate.i
+	@echo ... src/annotate.s
 	@echo ... src/eval.obj
 	@echo ... src/eval.i
 	@echo ... src/eval.s
