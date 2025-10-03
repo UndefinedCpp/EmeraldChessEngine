@@ -147,7 +147,11 @@ NNUEState gNNUE;
  */
 Value evaluate(Position& pos) {
     gNNUE.reset(pos);
-    return gNNUE.evaluate(pos.sideToMove());
+    int       rawScore         = gNNUE.evaluate(pos.sideToMove());
+    const int fiftyMoveCounter = pos.halfMoveClock();
+    // Decay score with respect to fifty-move rule linearly
+    rawScore = rawScore * (100 - fiftyMoveCounter) / 100;
+    return Value(rawScore);
 }
 
 /**
