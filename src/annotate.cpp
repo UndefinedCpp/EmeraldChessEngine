@@ -38,7 +38,9 @@ public:
         }
 
         // Save annotated position to output file
-        adjustAndSave(pos, Move(bestMove), bestValue);
+        if (!shouldSkip(pos, Move(bestMove))) {
+            adjustAndSave(pos, Move(bestMove), bestValue);
+        }
 
         // Update progress
         progress++;
@@ -137,6 +139,18 @@ private:
             500 * (pos.pieces(TYPE_ROOK, WHITE).count() - pos.pieces(TYPE_ROOK, BLACK).count()) +
             900 * (pos.pieces(TYPE_QUEEN, WHITE).count() - pos.pieces(TYPE_QUEEN, BLACK).count());
         return pos.sideToMove() == WHITE ? d : -d;
+    }
+
+    bool shouldSkip(Position& pos, Move move) {
+        if (pos.isCapture(move)) {
+            if (pos.isCheckMove(move)) { // Capture with check is likely tactic
+                return false;
+            }
+            if (!pos.see(move, 0)) { // Sacrifice
+                return false;
+            }
+        }
+        return true;
     }
 };
 
