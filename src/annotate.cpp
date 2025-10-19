@@ -7,7 +7,7 @@
 
 constexpr SearchParams DEFAULT_SEARCH_PARAMS = ([]() {
     SearchParams params;
-    params.nodes = 2000;
+    params.nodes = 3000; // 3K nodes
     return params;
 })();
 
@@ -111,18 +111,7 @@ private:
         if (score > 100) {
             // Bonus for being better than what material difference says
             if (score > materialDiff) {
-                score = score + score / 4; // 25% bonus
-            }
-            // Bonus for being ahead in development
-            int whiteBackrankPieces =
-                (pos.us(WHITE) & Bitboard(chess::Rank(chess::Rank::RANK_1))).count();
-            int blackBackrankPieces =
-                (pos.us(BLACK) & Bitboard(chess::Rank(chess::Rank::RANK_8))).count();
-            // positive diff indicates ahead in development
-            int diff = pos.sideToMove() == WHITE ? blackBackrankPieces - whiteBackrankPieces
-                                                 : whiteBackrankPieces - blackBackrankPieces;
-            if (diff > 2) {
-                score += 50; // 50 cp bonus
+                score = score + score / 4 - 25; // 25% bonus
             }
         }
         // Save score

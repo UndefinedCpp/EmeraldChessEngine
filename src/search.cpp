@@ -231,9 +231,9 @@ Value negamax(Position& pos, int depth, int ply, Value alpha, Value beta, bool c
     // without doing any further work.
     if (!isPV && !inCheck) {
         // Reverse Futility Pruning
-        const Value futilityMargin = Value(200) + Value(100) * depth;
+        const Value futilityMargin = Value(50) + Value(90) * depth;
         if (depth <= 9 && !alpha.isMate() && staticEval - futilityMargin > beta) {
-            return beta + (staticEval - beta) / 4;
+            return (2 * beta + staticEval) / 3;
         }
 
         // Razoring
