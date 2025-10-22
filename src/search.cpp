@@ -225,20 +225,24 @@ Value negamax(Position& pos, int depth, int ply, Value alpha, Value beta, bool c
     Value staticEval   = inCheck ? VALUE_NONE : evaluate(pos);
     currSS->staticEval = staticEval;
 
+    // Set up improving flag
+    const bool improving = !inCheck && searchStack[ply - 2].staticEval.isValid() &&
+                           staticEval > searchStack[ply - 2].staticEval;
+
     // Pre-move-loop pruning
 
     // If static evaluation is a fail-high or fail-low, we can likely prune
     // without doing any further work.
     if (!isPV && !inCheck) {
-        // Reverse Futility Pruning
-        const Value futilityMargin = Value(50) + Value(90) * depth;
-        if (depth <= 9 && !alpha.isMate() && staticEval - futilityMargin > beta) {
-            return (2 * beta + staticEval) / 3;
+        // Razoring
+        if (!isPV && staticEval < alpha - Value(250) - Value(130) * depth * depth) {
+            return qsearch(pos, 8, ply + 1, alpha, beta);
         }
 
-        // Razoring
-        if (staticEval < alpha - Value(500) - Value(100) * depth) {
-            return qsearch(pos, depth - 1, ply + 1, alpha, beta);
+        // Reverse Futility Pruning
+        const Value futilityMargin = Value(60) + Value(90) * depth;
+        if (depth <= 9 && !alpha.isMate() && staticEval - futilityMargin > beta) {
+            return (2 * beta + staticEval) / 3;
         }
 
         // Null move pruning

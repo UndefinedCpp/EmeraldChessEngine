@@ -178,15 +178,3 @@ void updateEvaluatorState(const Position& pos) {
 void updateEvaluatorState() {
     // gNNUE.pop();
 }
-
-/**
- * go depth 8
-info string tc 0 0
-info depth 1 score cp 32 nodes 21 seldepth 1 time 7 pv d2d4
-info depth 2 score cp 39 nodes 78 seldepth 2 time 10 pv d2d4
-info depth 3 score cp 21 nodes 693 seldepth 8 time 15 pv e2e4
-info depth 4 score cp 35 nodes 2027 seldepth 8 time 20 pv d2d4
-info depth 5 score cp 37 nodes 9006 seldepth 10 time 46 pv d2d4
-info depth 6 score cp 40 nodes 22119 seldepth 15 time 125 pv d2d4
-info depth 7 score cp 29 nodes 68574 seldepth 15 time 262 pv d2d4
- */

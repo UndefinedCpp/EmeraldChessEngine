@@ -187,7 +187,7 @@ void MovePicker::generateNoisyMoves() {
         // Use capture history heuristic
         const int16_t hist = history.capHistoryTable.get(pos.sideToMove(), move, pos);
         if (hist > 0) {
-            score = score / 2 + hist / 8;
+            score += hist * 2;
         }
 
         noisyBuffer.emplace_back(ScoredMove {move.move(), score});
@@ -236,7 +236,10 @@ void MovePicker::generateQuietMoves() {
 
         // Assign score from quiet history
         int historyScore = history.qHistoryTable.get(pos.sideToMove(), move);
-        score += historyScore / 4;
+        if (historyScore > 0)
+            score += historyScore / 4;
+        else
+            score += historyScore / 2; // more penalty for bad quiet moves
 
         quietBuffer.emplace_back(ScoredMove {move.move(), score});
     }
